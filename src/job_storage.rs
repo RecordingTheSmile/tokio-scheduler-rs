@@ -68,6 +68,9 @@ pub trait JobStorage<Tz: chrono::TimeZone + Send + Sync>: Send + Sync {
     async fn restore_jobs(&self) -> Result<(), SchedulerError>;
 }
 
+/// Simple Memory Job Storage implements `JobStorage`
+///
+/// !!! This JobStorage is not recommended for production environment !!!
 pub struct MemoryJobStorage<Tz = chrono::Utc>
     where Tz: chrono::TimeZone + Sync + Send
 {

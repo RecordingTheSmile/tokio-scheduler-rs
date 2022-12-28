@@ -7,12 +7,15 @@ use std::sync::{Arc, RwLock};
 use tokio::task::JoinHandle;
 use crate::job_storage::JobStorage;
 
-
+/// `JobExecutor` is used to execute jobs
 pub trait JobExecutor:Send + Sync{
+    /// start job execution
     fn start(&self)->JoinHandle<()>;
+    /// stop job execution and wait for all running jobs to complete
     fn stop(&self)->Pin<Box<dyn Future<Output = ()>>>;
 }
 
+/// Default implementation for `JobExecutor`
 pub struct DefaultJobExecutor<Tz: chrono::TimeZone + Send + Sync>{
     jobs: Arc<dyn JobStorage<Tz>>,
     tasks:Arc<RwLock<Vec<JoinHandle<()>>>>,
