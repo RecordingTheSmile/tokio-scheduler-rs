@@ -1,10 +1,9 @@
 use std::fmt::{Debug, Display, Formatter};
-
 #[derive(Debug)]
 pub enum SchedulerErrorKind{
-    AddJobErr(String),
-    DeleteJobErr(String),
-    HasJobErr(String)
+    AcquireLockErr,
+    JobRegistered,
+    CronInvalid,
 }
 
 #[derive(Debug)]
@@ -27,9 +26,5 @@ impl Display for SchedulerError {
 }
 
 impl std::error::Error for SchedulerError{
-
-}
-
-pub struct TaskError{
 
 }
