@@ -78,8 +78,8 @@ impl<'a,Tz: chrono::TimeZone + Send + Sync + 'static> JobScheduler<'a,Tz>{
     /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc);
     /// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
     /// ```
-    pub fn register_job(&self,job:Box<dyn ScheduleJob>)->Result<(),SchedulerError>{
-        self.job_storage.register_job(job)?;
+    pub async fn register_job(&self,job:Box<dyn ScheduleJob>)->Result<(),SchedulerError>{
+        self.job_storage.register_job(job).await?;
         Ok(())
     }
 

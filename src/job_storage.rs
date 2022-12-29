@@ -34,7 +34,7 @@ pub trait JobStorage<Tz: chrono::TimeZone + Send + Sync>: Send + Sync {
     ///
     /// # Attention
     /// Every job should provide a unique `job_name` in `get_job_name()` function!
-    fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError>;
+    async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError>;
     ///Add a job with given cron expression and context.
     ///
     /// # Arguments
@@ -114,7 +114,7 @@ unsafe impl<Tz: chrono::TimeZone + Sync + Send> Sync for MemoryJobStorage<Tz> {}
 
 #[async_trait]
 impl<Tz: chrono::TimeZone + Sync + Send> JobStorage<Tz> for MemoryJobStorage<Tz> {
-    fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
+    async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
         let is_registered = self.tasks.read().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?
             .get(&job.get_job_name())
             .is_some();
