@@ -25,7 +25,10 @@ pub struct JobScheduler<'a,Tz: chrono::TimeZone + Send + Sync>{
     job_executor:Arc<dyn JobExecutor + 'a>
 }
 
-impl<'a,Tz: chrono::TimeZone + Send + Sync + 'static> JobScheduler<'a,Tz>{
+impl<'a,Tz> JobScheduler<'a,Tz>
+where Tz: chrono::TimeZone + Send + Sync + 'static,
+Tz::Offset: Send + Sync
+{
     /// Create a new `JobScheduler` with custom `JobStorage` and `JobExecutor`
     ///
     /// # Example

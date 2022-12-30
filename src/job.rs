@@ -1,5 +1,6 @@
 use std::future::Future;
 use std::pin::Pin;
+
 use serde_json::Value;
 
 /// All jobs should implements this trait
@@ -25,8 +26,7 @@ use serde_json::Value;
 /// ```
 /// # Attention
 /// `job_name` must be unique!!!
-
 pub trait ScheduleJob:Send + Sync{
     fn get_job_name(&self)->String;
-    fn execute(&self,id:String,args:Option<Value>)->Pin<Box<dyn Future<Output = ()> + Send + Sync>>;
+    fn execute(&self,id:String,args:Option<Value>)->Pin<Box<dyn Future<Output = ()> + Send>>;
 }

@@ -3,9 +3,11 @@ use std::future::{Future};
 
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use futures::FutureExt;
 
-use tokio::task::JoinHandle;
+
+
+
+use tokio::task::{JoinHandle};
 use crate::job_storage::JobStorage;
 
 /// `JobExecutor` is used to execute jobs
@@ -17,14 +19,20 @@ pub trait JobExecutor:Send + Sync{
 }
 
 /// Default implementation for `JobExecutor`
-pub struct DefaultJobExecutor<Tz: chrono::TimeZone + Send + Sync>{
+pub struct DefaultJobExecutor<Tz>
+where Tz : chrono::TimeZone + Send + Sync,
+Tz::Offset: Send + Sync
+{
     jobs: Arc<dyn JobStorage<Tz>>,
     tasks:Arc<RwLock<Vec<JoinHandle<()>>>>,
     shutdown_channel:tokio::sync::broadcast::Sender<()>,
     should_next:Arc<RwLock<bool>>
 }
 
-impl<Tz: chrono::TimeZone + Send + Sync> DefaultJobExecutor<Tz>{
+impl<Tz> DefaultJobExecutor<Tz>
+where Tz : chrono::TimeZone + Send + Sync,
+Tz::Offset: Send + Sync
+{
     pub fn new(jobs:Arc<dyn JobStorage<Tz>>)->Self{
         let shutdown_chan = tokio::sync::broadcast::channel(1);
         Self{
@@ -36,7 +44,10 @@ impl<Tz: chrono::TimeZone + Send + Sync> DefaultJobExecutor<Tz>{
     }
 }
 
-impl<Tz: chrono::TimeZone + Send + Sync + 'static> JobExecutor for DefaultJobExecutor<Tz>{
+impl<Tz> JobExecutor for DefaultJobExecutor<Tz>
+where Tz: chrono::TimeZone + Send + Sync + 'static,
+Tz::Offset: Send + Sync
+{
     fn start(&self) -> JoinHandle<()> {
         let storage = self.jobs.to_owned();
         let shutdown_sender = self.shutdown_channel.to_owned();
@@ -57,9 +68,9 @@ impl<Tz: chrono::TimeZone + Send + Sync + 'static> JobExecutor for DefaultJobExe
                     Ok(t)=>t,
                     Err(_)=>continue
                 };
-                for i in should_exec{
+                for job in should_exec{
                     let handle = tokio::spawn(async move{
-                        i.await;
+                        job.await;
                         ()
                     });
                     let mut task_vec = match tasks.write(){

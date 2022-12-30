@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc};
+use tokio::sync::RwLock;
 use async_trait::async_trait;
 use chrono::{DateTime, Local};
 use cron::Schedule;
@@ -26,7 +27,10 @@ use crate::job::{ScheduleJob};
 ///
 /// `restore_jobs`: Restore all jobs from storage
 #[async_trait]
-pub trait JobStorage<Tz: chrono::TimeZone + Send + Sync>: Send + Sync {
+pub trait JobStorage<Tz>: Send + Sync
+where Tz:chrono::TimeZone,
+Tz::Offset: Send + Sync
+{
     ///Register a job
     ///
     /// # Arguments
@@ -63,7 +67,7 @@ pub trait JobStorage<Tz: chrono::TimeZone + Send + Sync>: Send + Sync {
     ///
     /// # Returns
     /// A vec which store all future which should execute now.
-    async fn get_all_should_execute_jobs(&self) -> Result<Vec<Pin<Box<dyn Future<Output=()> + Send + Sync>>>, SchedulerError>;
+    async fn get_all_should_execute_jobs(&self) -> Result<Vec<Pin<Box<dyn Future<Output = ()> + Send>>>, SchedulerError>;
     /// Restore all jobs from storage
     async fn restore_jobs(&self) -> Result<(), SchedulerError>;
 }
@@ -113,9 +117,12 @@ unsafe impl<Tz: chrono::TimeZone + Sync + Send> Send for MemoryJobStorage<Tz> {}
 unsafe impl<Tz: chrono::TimeZone + Sync + Send> Sync for MemoryJobStorage<Tz> {}
 
 #[async_trait]
-impl<Tz: chrono::TimeZone + Sync + Send> JobStorage<Tz> for MemoryJobStorage<Tz> {
+impl<Tz> JobStorage<Tz> for MemoryJobStorage<Tz>
+where Tz: chrono::TimeZone + Sync + Send,
+Tz::Offset: Send+ Sync
+{
     async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
-        let is_registered = self.tasks.read().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?
+        let is_registered = self.tasks.read().await
             .get(&job.get_job_name())
             .is_some();
 
@@ -123,7 +130,7 @@ impl<Tz: chrono::TimeZone + Sync + Send> JobStorage<Tz> for MemoryJobStorage<Tz>
             return Err(SchedulerError::new(SchedulerErrorKind::JobRegistered));
         }
 
-        self.tasks.write().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?
+        self.tasks.write().await
             .insert(job.get_job_name(), job);
         Ok(())
     }
@@ -132,32 +139,32 @@ impl<Tz: chrono::TimeZone + Sync + Send> JobStorage<Tz> for MemoryJobStorage<Tz>
         let cron = Schedule::from_str(&cron).map_err(|_| SchedulerError::new(SchedulerErrorKind::CronInvalid))?;
         let id = uuid::Uuid::new_v4().to_string();
 
-        self.jobs.write().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?
+        self.jobs.write().await
             .insert(id.to_owned(), (cron, job_name, args));
 
         Ok(id)
     }
 
     async fn delete_job(&self, id: String) -> Result<(), SchedulerError> {
-        self.jobs.write().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?
+        self.jobs.write().await
             .remove(&id);
 
         Ok(())
     }
 
     async fn has_job(&self, id: String) -> Result<bool, SchedulerError> {
-        let has = self.jobs.write().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?
+        let has = self.jobs.write().await
             .contains_key(&id);
 
         Ok(has)
     }
 
-    async fn get_all_should_execute_jobs(&self) -> Result<Vec<Pin<Box<dyn Future<Output=()> + Send + Sync>>>, SchedulerError>
+    async fn get_all_should_execute_jobs(&self) -> Result<Vec<Pin<Box<dyn Future<Output = ()> + Send>>>, SchedulerError>
     {
         let time_now = Local::now().with_timezone(&self.timezone);
 
-        let last_check_at = self.last_check_time.read().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?;
-        let self_jobs = self.jobs.read().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?;
+        let last_check_at = self.last_check_time.read().await;
+        let self_jobs = self.jobs.read().await;
         let cron_and_name: Vec<(&Schedule, &String, &Option<serde_json::Value>,&String)> = self_jobs.iter()
             .map(|(id, (cron, task_name, args))| {
                 (cron, task_name, args,id)
@@ -165,13 +172,13 @@ impl<Tz: chrono::TimeZone + Sync + Send> JobStorage<Tz> for MemoryJobStorage<Tz>
 
         let mut result_vec = vec![];
 
-        let self_tasks = self.tasks.read().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))?;
+        let self_tasks = self.tasks.read().await;
 
         for (cron, name, args,id) in cron_and_name {
             for time in cron.after(&last_check_at) {
                 if time <= time_now {
                     match self_tasks.get(name) {
-                        Some(v) => result_vec.push(v.execute(id.to_owned(), args.to_owned())),
+                        Some(v) => result_vec.push(v.execute(id.to_owned(),args.to_owned())),
                         None => break
                     };
                 } else {
@@ -181,7 +188,7 @@ impl<Tz: chrono::TimeZone + Sync + Send> JobStorage<Tz> for MemoryJobStorage<Tz>
         }
 
         drop(last_check_at);
-        *self.last_check_time.write().map_err(|_| SchedulerError::new(SchedulerErrorKind::AcquireLockErr))? = time_now;
+        *self.last_check_time.write().await = time_now;
 
         Ok(result_vec)
     }
