@@ -1,5 +1,5 @@
 use std::fmt::{Debug, Display, Formatter};
-#[derive(Debug)]
+#[derive(Debug,Clone)]
 pub enum SchedulerErrorKind{
     AcquireLockErr,
     JobRegistered,

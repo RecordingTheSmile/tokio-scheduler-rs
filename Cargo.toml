@@ -1,6 +1,6 @@
 [package]
 name = "tokio-scheduler-rs"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "Yet Another JobScheduler written with tokio runtime"
 license = "MIT"
@@ -21,6 +21,7 @@ chrono = "^0"
 tokio = {version = "^1",features = ["full"]}
 once_cell = "^1"
 async-trait = "^0"
+futures = "^0"
 
 [dev-dependencies]
 chrono-tz = "^0"

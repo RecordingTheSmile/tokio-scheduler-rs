@@ -3,6 +3,7 @@ use std::future::{Future};
 
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+use futures::FutureExt;
 
 use tokio::task::JoinHandle;
 use crate::job_storage::JobStorage;
