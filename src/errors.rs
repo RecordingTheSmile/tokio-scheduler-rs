@@ -4,6 +4,8 @@ pub enum SchedulerErrorKind{
     AcquireLockErr,
     JobRegistered,
     CronInvalid,
+    JobNotExists,
+    CustomErr(String)
 }
 
 #[derive(Debug)]
