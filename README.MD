@@ -74,7 +74,7 @@ So, you can define your own `JobExecutor`, polling the `JobStorage` and transfer
 
 In the remote machine, you should define the `Job` with given `name`, then execute it with given job information(`new JobContext()`) received from origin `JobExecutor` machine.
 
-![DistributedJob]("assets/DistributedJob.svg" "Distributed Job Execution")
+![DistributedJob](assets/DistributedJob.jpg "Distributed Job Execution")
 
 # Roadmap
 * Add more tests

@@ -72,7 +72,7 @@ async fn main() {
 
 在远程机器上，你需要实现一个`Job`，这个`Job`和`JobStorage`中的名字是一样的，然后利用接收到的信息组成`JobContext`去执行。
 
-![DistributedJob]("assets/DistributedJob.svg" "Distributed Job Execution")
+![DistributedJob](assets/DistributedJob.jpg "Distributed Job Execution")
 
 # 路线图
 * 添加更多测试实例
