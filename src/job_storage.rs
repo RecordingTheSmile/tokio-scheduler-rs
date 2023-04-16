@@ -1,16 +1,14 @@
-use std::collections::HashMap;
-use std::future::Future;
-use std::pin::Pin;
-use std::str::FromStr;
-use std::sync::{Arc};
-use tokio::sync::RwLock;
 use async_trait::async_trait;
 use chrono::{DateTime, Local};
 use cron::Schedule;
+use dashmap::DashMap;
+use serde_json::Value;
+use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::errors::{SchedulerError, SchedulerErrorKind};
-use crate::job::{ScheduleJob};
-
+use crate::job::{JobContext, ScheduleJob, WillExecuteJobFuture};
 
 ///
 /// `JobStorage` is used to store all jobs and context.
@@ -28,8 +26,9 @@ use crate::job::{ScheduleJob};
 /// `restore_jobs`: Restore all jobs from storage
 #[async_trait]
 pub trait JobStorage<Tz>: Send + Sync
-where Tz:chrono::TimeZone,
-Tz::Offset: Send + Sync
+where
+    Tz: chrono::TimeZone,
+    Tz::Offset: Send + Sync,
 {
     ///Register a job
     ///
@@ -50,11 +49,23 @@ Tz::Offset: Send + Sync
     ///
     /// # Returns
     /// JobId
-    async fn add_job(&self, job_name: String, cron: String, args: Option<serde_json::Value>) -> Result<String, SchedulerError>;
+    async fn add_job(
+        &self,
+        job_name: &str,
+        cron: &str,
+        args: &Option<serde_json::Value>,
+    ) -> Result<String, SchedulerError>;
+    /// Add a job which is going to retry.
+    async fn add_retry_job(
+        &self,
+        job_name: &str,
+        args: &Option<Value>,
+        retry_times: u64,
+    ) -> Result<String, SchedulerError>;
     ///Delete a job.
     /// # Arguments
     /// 1. `id`: JobId
-    async fn delete_job(&self, id: String) -> Result<(), SchedulerError>;
+    async fn delete_job(&self, id: &str) -> Result<(), SchedulerError>;
     /// Judge is there a job with given JobId
     ///
     /// # Arguments
@@ -62,34 +73,60 @@ Tz::Offset: Send + Sync
     ///
     /// # Returns
     /// A bool which represents the existence of job with given JobId
-    async fn has_job(&self, id: String) -> Result<bool, SchedulerError>;
+    async fn has_job(&self, id: &str) -> Result<bool, SchedulerError>;
     /// Get all jobs which should execute now.
     ///
     /// # Returns
-    /// A vec which store all future which should execute now.
-    async fn get_all_should_execute_jobs(&self) -> Result<Vec<Pin<Box<dyn Future<Output = ()> + Send>>>, SchedulerError>;
+    /// A vec which store all future which should execute now. The last `u64` argument represents `retry_times`. If the task is not in retry queue, this value should be 0.
+    async fn get_all_should_execute_jobs(
+        &self,
+    ) -> Result<Vec<(String, String, Option<Value>, u64)>, SchedulerError>;
     /// Restore all jobs from storage
     async fn restore_jobs(&self) -> Result<(), SchedulerError>;
+    /// Get a `job` from `JobStorage` by it's name
+    async fn get_job_by_name(
+        &self,
+        name: &str,
+        id: &str,
+        args: &Option<Value>,
+    ) -> Result<Option<WillExecuteJobFuture>, SchedulerError>;
+    /// Get many `job` from `JobStorage` by it's name
+    ///
+    /// # Arguments
+    /// `exprs` is &Vec<(JobName,JobId,JobArguments)>
+    /// # Returns
+    /// The return value of this function is `Vec<(WillExecuteJobFuture,JobName,JobId,JobArguments)>`
+    ///
+    /// **You must return the values in the same order**
+    async fn get_jobs_by_name(
+        &self,
+        exprs: &Vec<(String, String, Option<Value>)>,
+    ) -> Result<Vec<(WillExecuteJobFuture, String, String, Option<Value>)>, SchedulerError>;
 }
 
 /// Simple Memory Job Storage implements `JobStorage`
 ///
 /// !!! This JobStorage is not recommended for production environment !!!
 pub struct MemoryJobStorage<Tz = chrono::Utc>
-    where Tz: chrono::TimeZone + Sync + Send
+where
+    Tz: chrono::TimeZone + Sync + Send,
 {
-    tasks: Arc<RwLock<HashMap<String, Box<dyn ScheduleJob>>>>,
-    jobs: Arc<RwLock<HashMap<String, (Schedule, String, Option<serde_json::Value>)>>>,
+    tasks: DashMap<String, Box<dyn ScheduleJob>>,
+    jobs: DashMap<String, (Schedule, String, Option<serde_json::Value>)>,
+    retry_jobs: DashMap<String, (String, Option<serde_json::Value>, u64)>,
     timezone: Tz,
     last_check_time: Arc<RwLock<DateTime<Tz>>>,
 }
 
 impl<Tz> MemoryJobStorage<Tz>
-    where Tz: chrono::TimeZone + Send + Sync {
+where
+    Tz: chrono::TimeZone + Send + Sync,
+{
     pub fn new(timezone: Tz) -> Self {
         Self {
-            tasks: Arc::new(RwLock::new(HashMap::new())),
-            jobs: Arc::new(RwLock::new(HashMap::new())),
+            tasks: DashMap::new(),
+            jobs: DashMap::new(),
+            retry_jobs: DashMap::new(),
             timezone: timezone.to_owned(),
             last_check_time: Arc::new(RwLock::new(Local::now().with_timezone(&timezone))),
         }
@@ -104,8 +141,9 @@ impl<Tz> MemoryJobStorage<Tz>
 impl Default for MemoryJobStorage<chrono::Utc> {
     fn default() -> Self {
         Self {
-            tasks: Arc::new(RwLock::new(HashMap::new())),
-            jobs: Arc::new(RwLock::new(HashMap::new())),
+            tasks: DashMap::new(),
+            jobs: DashMap::new(),
+            retry_jobs: DashMap::new(),
             timezone: chrono::Utc,
             last_check_time: Arc::new(RwLock::new(Local::now().with_timezone(&chrono::Utc))),
         }
@@ -118,69 +156,90 @@ unsafe impl<Tz: chrono::TimeZone + Sync + Send> Sync for MemoryJobStorage<Tz> {}
 
 #[async_trait]
 impl<Tz> JobStorage<Tz> for MemoryJobStorage<Tz>
-where Tz: chrono::TimeZone + Sync + Send,
-Tz::Offset: Send+ Sync
+where
+    Tz: chrono::TimeZone + Sync + Send,
+    Tz::Offset: Send + Sync,
 {
     async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
-        let is_registered = self.tasks.read().await
-            .get(&job.get_job_name())
-            .is_some();
+        let is_registered = self.tasks.get(&job.get_job_name()).is_some();
 
         if is_registered {
             return Err(SchedulerError::new(SchedulerErrorKind::JobRegistered));
         }
 
-        self.tasks.write().await
-            .insert(job.get_job_name(), job);
+        self.tasks.insert(job.get_job_name(), job);
         Ok(())
     }
 
-    async fn add_job(&self, job_name: String, cron: String, args: Option<serde_json::Value>) -> Result<String, SchedulerError> {
-        let cron = Schedule::from_str(&cron).map_err(|_| SchedulerError::new(SchedulerErrorKind::CronInvalid))?;
+    async fn add_job(
+        &self,
+        job_name: &str,
+        cron: &str,
+        args: &Option<serde_json::Value>,
+    ) -> Result<String, SchedulerError> {
+        let cron = Schedule::from_str(&cron)
+            .map_err(|_| SchedulerError::new(SchedulerErrorKind::CronInvalid))?;
         let id = uuid::Uuid::new_v4().to_string();
 
-        self.jobs.write().await
-            .insert(id.to_owned(), (cron, job_name, args));
+        self.jobs
+            .insert(id.to_owned(), (cron, job_name.to_owned(), args.to_owned()));
 
         Ok(id)
     }
 
-    async fn delete_job(&self, id: String) -> Result<(), SchedulerError> {
-        self.jobs.write().await
-            .remove(&id);
+    async fn add_retry_job(
+        &self,
+        job_name: &str,
+        args: &Option<Value>,
+        retry_times: u64,
+    ) -> Result<String, SchedulerError> {
+        let id = uuid::Uuid::new_v4().to_string();
+
+        self.retry_jobs.insert(
+            id.to_owned(),
+            (job_name.to_owned(), args.to_owned(), retry_times),
+        );
+
+        Ok(id)
+    }
+
+    async fn delete_job(&self, id: &str) -> Result<(), SchedulerError> {
+        self.jobs.remove(id);
 
         Ok(())
     }
 
-    async fn has_job(&self, id: String) -> Result<bool, SchedulerError> {
-        let has = self.jobs.write().await
-            .contains_key(&id);
+    async fn has_job(&self, id: &str) -> Result<bool, SchedulerError> {
+        let has = self.jobs.contains_key(id);
 
         Ok(has)
     }
 
-    async fn get_all_should_execute_jobs(&self) -> Result<Vec<Pin<Box<dyn Future<Output = ()> + Send>>>, SchedulerError>
-    {
+    async fn get_all_should_execute_jobs(
+        &self,
+    ) -> Result<Vec<(String, String, Option<Value>, u64)>, SchedulerError> {
         let time_now = Local::now().with_timezone(&self.timezone);
 
         let last_check_at = self.last_check_time.read().await;
-        let self_jobs = self.jobs.read().await;
-        let cron_and_name: Vec<(&Schedule, &String, &Option<serde_json::Value>,&String)> = self_jobs.iter()
-            .map(|(id, (cron, task_name, args))| {
-                (cron, task_name, args,id)
-            }).collect();
+        let cron_and_name: Vec<(Schedule, String, Option<serde_json::Value>, String)> = self
+            .jobs
+            .iter()
+            .map(|v| {
+                (
+                    v.value().0.to_owned(),
+                    v.value().1.to_owned(),
+                    v.value().2.to_owned(),
+                    v.key().to_owned(),
+                )
+            })
+            .collect();
 
         let mut result_vec = vec![];
 
-        let self_tasks = self.tasks.read().await;
-
-        for (cron, name, args,id) in cron_and_name {
+        for (cron, name, args, id) in cron_and_name {
             for time in cron.after(&last_check_at) {
                 if time <= time_now {
-                    match self_tasks.get(name) {
-                        Some(v) => result_vec.push(v.execute(id.to_owned(),args.to_owned())),
-                        None => break
-                    };
+                    result_vec.push((name.to_owned(), id.to_owned(), args.to_owned(), 0_u64))
                 } else {
                     break;
                 }
@@ -190,6 +249,22 @@ Tz::Offset: Send+ Sync
         drop(last_check_at);
         *self.last_check_time.write().await = time_now;
 
+        let mut all_should_retry_jobs = self
+            .retry_jobs
+            .iter()
+            .map(|v| {
+                (
+                    v.value().0.to_owned(),
+                    v.key().to_owned(),
+                    v.value().1.to_owned(),
+                    v.value().2,
+                )
+            })
+            .collect();
+
+        result_vec.append(&mut all_should_retry_jobs);
+
+        self.retry_jobs.clear();
         Ok(result_vec)
     }
 
@@ -197,21 +272,36 @@ Tz::Offset: Send+ Sync
         Ok(())
     }
 
-    // fn get_registered_jobs(&self, job_names: &[String]) -> Vec<Pin<Box<dyn Future<Output=()>>>> {
-    //     let mut ret = Vec::new();
-    //
-    //     job_names.iter()
-    //         .for_each(|s| {
-    //             match self.tasks.read() {
-    //                 Ok(v) =>
-    //                     match v.get(s) {
-    //                         Some(t) => ret.push(t.execute()),
-    //                         None => return
-    //                     },
-    //                 Err(_) => return
-    //             };
-    //         });
-    //
-    //     ret
-    // }
+    async fn get_job_by_name(
+        &self,
+        name: &str,
+        id: &str,
+        args: &Option<Value>,
+    ) -> Result<Option<WillExecuteJobFuture>, SchedulerError> {
+        if let Some(task) = self.tasks.get(name) {
+            let job_context = JobContext::new(id.to_owned(), args.to_owned(), 0);
+            Ok(Some(WillExecuteJobFuture::new(
+                task.execute(job_context.to_owned()),
+                job_context,
+            )))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn get_jobs_by_name(
+        &self,
+        exprs: &Vec<(String, String, Option<Value>)>,
+    ) -> Result<Vec<(WillExecuteJobFuture, String, String, Option<Value>)>, SchedulerError> {
+        let mut result = vec![];
+
+        for (name, id, args) in exprs {
+            let job = match self.get_job_by_name(&name, &id, args).await? {
+                Some(j) => j,
+                None => continue,
+            };
+            result.push((job, name.to_owned(), id.to_owned(), args.to_owned()));
+        }
+        Ok(result)
+    }
 }

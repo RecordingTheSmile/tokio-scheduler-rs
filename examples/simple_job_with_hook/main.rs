@@ -1,19 +1,3 @@
-<div style="text-align: center"><h1>TOKIO-SCHEDULER-RS</h1></div>
-
-<div style="text-align: center">Yet Another JobScheduler</div>
-
-<a href="README_CN.MD">简体中文</a>
-
-# Features
-* Async Completely
-* Witten with tokio runtime
-* Maximum Customize
-* Hook support
-* Automatic retry support
-* Distribute Job Execution support (You should implement it by yourself)
-
-# Example
-```rust
 use std::sync::Arc;
 
 use example_hook::ExampleHook;
@@ -58,27 +42,3 @@ async fn main() {
     // The `JobExecutor` will stop execute NEW job once you execute this.
     scheduler.wait_for_stop().await;
 }
-```
-# Examples
-You can see examples in the `examples` directory.
-
-# Contribute
-If you have some ideas, you can create a pull request or open an issue.
-
-Any kinds of contributions are welcome!
-
-# Distributed Job Execution
-As you can see, in `JobExecutor` trait, we define two functions: `start` and `stop`.
-
-So, you can define your own `JobExecutor`, polling the `JobStorage` and transfer job information to remote via anyway you want.
-
-In the remote machine, you should define the `Job` with given `name`, then execute it with given job information(`new JobContext()`) received from origin `JobExecutor` machine.
-
-![DistributedJob]("assets/DistributedJob.svg" "Distributed Job Execution")
-
-# Roadmap
-* Add more tests
-* Distributed task execution system that is ready-to-use out of the box
-
-# License
-MIT

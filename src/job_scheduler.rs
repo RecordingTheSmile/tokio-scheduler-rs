@@ -68,7 +68,7 @@ Tz::Offset: Send + Sync
         let storage = Arc::new(MemoryJobStorage::new(timezone));
         Self{
             job_storage: storage.to_owned(),
-            job_executor: Arc::new(DefaultJobExecutor::new(storage))
+            job_executor: Arc::new(DefaultJobExecutor::new(storage,None,None))
         }
     }
 
@@ -98,7 +98,7 @@ Tz::Offset: Send + Sync
     ///
     /// # Returns
     /// This function will return a JobId
-    pub async fn add_job(&self,job_name:String,job_cron:String,args:Option<serde_json::Value>)->Result<String,SchedulerError>{
+    pub async fn add_job(&self,job_name:&str,job_cron:&str,args:&Option<serde_json::Value>)->Result<String,SchedulerError>{
         self.job_storage.add_job(job_name,job_cron,args).await
     }
 
@@ -106,7 +106,7 @@ Tz::Offset: Send + Sync
     ///
     /// # Arguments
     /// `job_id`: The JobId you got from `add_job()`
-    pub async fn delete_job(&self,job_id:String)->Result<(),SchedulerError>{
+    pub async fn delete_job(&self,job_id:&str)->Result<(),SchedulerError>{
         self.job_storage.delete_job(job_id).await
     }
 
@@ -117,7 +117,7 @@ Tz::Offset: Send + Sync
     ///
     /// # Returns
     /// A bool which represents the existence of task with given JobId
-    pub async fn has_job(&self,job_id:String)->Result<bool,SchedulerError>{
+    pub async fn has_job(&self,job_id:&str)->Result<bool,SchedulerError>{
         self.job_storage.has_job(job_id).await
     }
 
@@ -153,7 +153,7 @@ Tz::Offset: Send + Sync
     /// Send `stop` signal to `JobExecutor`, and waiting for all jobs to stop.
     ///
     /// # Notice
-    /// This function will pending until all running jobs is complete.
+    /// This function will pending until all running jobs are complete.
     pub fn wait_for_stop(&self)->Pin<Box<dyn Future<Output = ()>>>{
         self.job_executor.stop()
     }
