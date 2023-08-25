@@ -2,10 +2,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Local};
 use cron::Schedule;
 use dashmap::DashMap;
+use parking_lot::RwLock;
 use serde_json::Value;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::errors::{SchedulerError, SchedulerErrorKind};
 use crate::job::{JobContext, ScheduleJob, WillExecuteJobFuture};
@@ -53,7 +53,7 @@ where
         &self,
         job_name: &str,
         cron: &str,
-        args: &Option<serde_json::Value>,
+        args: &Option<Value>,
     ) -> Result<String, SchedulerError>;
     /// Add a job which is going to retry.
     async fn add_retry_job(
@@ -112,8 +112,8 @@ where
     Tz: chrono::TimeZone + Sync + Send,
 {
     tasks: DashMap<String, Box<dyn ScheduleJob>>,
-    jobs: DashMap<String, (Schedule, String, Option<serde_json::Value>)>,
-    retry_jobs: DashMap<String, (String, Option<serde_json::Value>, u64)>,
+    jobs: DashMap<String, (Schedule, String, Option<Value>)>,
+    retry_jobs: DashMap<String, (String, Option<Value>, u64)>,
     timezone: Tz,
     last_check_time: Arc<RwLock<DateTime<Tz>>>,
 }
@@ -175,7 +175,7 @@ where
         &self,
         job_name: &str,
         cron: &str,
-        args: &Option<serde_json::Value>,
+        args: &Option<Value>,
     ) -> Result<String, SchedulerError> {
         let cron = Schedule::from_str(&cron)
             .map_err(|_| SchedulerError::new(SchedulerErrorKind::CronInvalid))?;
@@ -220,8 +220,8 @@ where
     ) -> Result<Vec<(String, String, Option<Value>, u64)>, SchedulerError> {
         let time_now = Local::now().with_timezone(&self.timezone);
 
-        let last_check_at = self.last_check_time.read().await;
-        let cron_and_name: Vec<(Schedule, String, Option<serde_json::Value>, String)> = self
+        let last_check_at = self.last_check_time.read();
+        let cron_and_name: Vec<(Schedule, String, Option<Value>, String)> = self
             .jobs
             .iter()
             .map(|v| {
@@ -247,7 +247,7 @@ where
         }
 
         drop(last_check_at);
-        *self.last_check_time.write().await = time_now;
+        *self.last_check_time.write() = time_now;
 
         let mut all_should_retry_jobs = self
             .retry_jobs
@@ -279,9 +279,9 @@ where
         args: &Option<Value>,
     ) -> Result<Option<WillExecuteJobFuture>, SchedulerError> {
         if let Some(task) = self.tasks.get(name) {
-            let job_context = JobContext::new(id.to_owned(), args.to_owned(), 0);
+            let mut job_context = JobContext::new(id.to_owned(), args.to_owned(), 0);
             Ok(Some(WillExecuteJobFuture::new(
-                task.execute(job_context.to_owned()),
+                task.execute(&mut job_context),
                 job_context,
             )))
         } else {

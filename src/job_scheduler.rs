@@ -13,21 +13,22 @@ use crate::job_storage::{JobStorage, MemoryJobStorage};
 /// # Examples
 /// ```rust
 /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
-/// let scheduler = JobScheduler::default_with_timezone(chrono_tz::PRC);
+/// let scheduler = JobScheduler::default_with_timezone(chrono_tz::PRC, 30);
 /// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
 /// scheduler.add_job("HelloWorldJob".into(),"*/5 * * * * * *".into(),None).await.unwrap();
 /// scheduler.restore_jobs().await.unwrap(); // This step is used to restore job execute status.
 ///                                          // Please notice that you can implement you own job storage to store job status.
 /// scheduler.start().await.unwrap(); // `start()` returns a tokio::JoinHandle<()>, you can continue this program if you don't await it.
 /// ```
-pub struct JobScheduler<'a,Tz: chrono::TimeZone + Send + Sync>{
-    job_storage:Arc<dyn JobStorage<Tz> + 'a>,
-    job_executor:Arc<dyn JobExecutor + 'a>
+pub struct JobScheduler<'a, Tz: chrono::TimeZone + Send + Sync> {
+    job_storage: Arc<dyn JobStorage<Tz> + 'a>,
+    job_executor: Arc<dyn JobExecutor + 'a>,
 }
 
-impl<'a,Tz> JobScheduler<'a,Tz>
-where Tz: chrono::TimeZone + Send + Sync + 'static,
-Tz::Offset: Send + Sync
+impl<'a, Tz> JobScheduler<'a, Tz>
+where
+    Tz: chrono::TimeZone + Send + Sync + 'static,
+    Tz::Offset: Send + Sync,
 {
     /// Create a new `JobScheduler` with custom `JobStorage` and `JobExecutor`
     ///
@@ -40,15 +41,21 @@ Tz::Offset: Send + Sync
     /// let job_storage = Arc::new(MemoryJobStorage::new(chrono_tz::US));
     /// let scheduler = JobScheduler::new(job_storage,DefaultJobExecutor::new(job_storage));
     /// ```
-    pub fn new(job_storage: Arc<impl JobStorage<Tz> + 'a>,job_executor :impl JobExecutor+ 'a)->Self{
-        Self{
+    pub fn new(
+        job_storage: Arc<impl JobStorage<Tz> + 'a>,
+        job_executor: impl JobExecutor + 'a,
+    ) -> Self {
+        Self {
             job_storage,
-            job_executor:Arc::new(job_executor)
+            job_executor: Arc::new(job_executor),
         }
     }
 
     /// Create `JobScheduler` with custom Timezone, Default `JobStorage` and Default `JobExecutor`
     ///
+    /// # Arguments
+    /// `timezone`: The timezone of `JobExecutor`
+    /// `stop_timeout`: Set a timeout seconds for tasks to complete  when call the `stop()` fn
     /// equals to
     /// ```rust
     /// # use std::sync::Arc;
@@ -62,13 +69,13 @@ Tz::Offset: Send + Sync
     /// # Example
     /// ```rust
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
-    /// let scheduler = JobScheduler::default_with_timezone(chrono_tz::US);
+    /// let scheduler = JobScheduler::default_with_timezone(chrono_tz::US,30);
     /// ```
-    pub fn default_with_timezone(timezone:Tz)->Self{
+    pub fn default_with_timezone(timezone: Tz, stop_timeout: u64) -> Self {
         let storage = Arc::new(MemoryJobStorage::new(timezone));
-        Self{
+        Self {
             job_storage: storage.to_owned(),
-            job_executor: Arc::new(DefaultJobExecutor::new(storage,None,None))
+            job_executor: Arc::new(DefaultJobExecutor::new(storage, None, None, stop_timeout)),
         }
     }
 
@@ -81,7 +88,7 @@ Tz::Offset: Send + Sync
     /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc);
     /// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
     /// ```
-    pub async fn register_job(&self,job:Box<dyn ScheduleJob>)->Result<(),SchedulerError>{
+    pub async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
         self.job_storage.register_job(job).await?;
         Ok(())
     }
@@ -98,15 +105,20 @@ Tz::Offset: Send + Sync
     ///
     /// # Returns
     /// This function will return a JobId
-    pub async fn add_job(&self,job_name:&str,job_cron:&str,args:&Option<serde_json::Value>)->Result<String,SchedulerError>{
-        self.job_storage.add_job(job_name,job_cron,args).await
+    pub async fn add_job(
+        &self,
+        job_name: &str,
+        job_cron: &str,
+        args: &Option<serde_json::Value>,
+    ) -> Result<String, SchedulerError> {
+        self.job_storage.add_job(job_name, job_cron, args).await
     }
 
     /// Remove a job
     ///
     /// # Arguments
     /// `job_id`: The JobId you got from `add_job()`
-    pub async fn delete_job(&self,job_id:&str)->Result<(),SchedulerError>{
+    pub async fn delete_job(&self, job_id: &str) -> Result<(), SchedulerError> {
         self.job_storage.delete_job(job_id).await
     }
 
@@ -117,7 +129,7 @@ Tz::Offset: Send + Sync
     ///
     /// # Returns
     /// A bool which represents the existence of task with given JobId
-    pub async fn has_job(&self,job_id:&str)->Result<bool,SchedulerError>{
+    pub async fn has_job(&self, job_id: &str) -> Result<bool, SchedulerError> {
         self.job_storage.has_job(job_id).await
     }
 
@@ -132,7 +144,7 @@ Tz::Offset: Send + Sync
     /// `JobScheduler` with default `MemoryJobStorage` will do nothing when you execute this function.
     ///
     /// If you want to restore job execution status after restart, you should implement `JobStorage` trait by yourself.
-    pub async fn restore_jobs(&self)->Result<(),SchedulerError>{
+    pub async fn restore_jobs(&self) -> Result<(), SchedulerError> {
         self.job_storage.restore_jobs().await
     }
 
@@ -145,7 +157,7 @@ Tz::Offset: Send + Sync
     /// If you want to continue running program, you can ignore the `JoinHandle` returned from this function.
     ///
     /// If you want to waiting, you should `.await` it.
-    pub fn start(&self)->JoinHandle<()>{
+    pub fn start(&self) -> JoinHandle<()> {
         let executor = self.job_executor.to_owned();
         executor.start()
     }
@@ -154,7 +166,7 @@ Tz::Offset: Send + Sync
     ///
     /// # Notice
     /// This function will pending until all running jobs are complete.
-    pub fn wait_for_stop(&self)->Pin<Box<dyn Future<Output = ()>>>{
+    pub fn wait_for_stop(&self) -> Pin<Box<dyn Future<Output = ()>>> {
         self.job_executor.stop()
     }
 }

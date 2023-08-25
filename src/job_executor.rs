@@ -1,12 +1,12 @@
 use std::future::Future;
 
+use parking_lot::RwLock;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::job_hook::{JobHook, JobHookReturn};
 use crate::job_storage::JobStorage;
 
-use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 /// `JobExecutor` is used to execute jobs
@@ -28,7 +28,8 @@ where
     shutdown_channel: tokio::sync::broadcast::Sender<()>,
     should_next: Arc<RwLock<bool>>,
     polling_time: u64,
-    hook: Arc<RwLock<Option<Box<dyn JobHook>>>>,
+    hook: Arc<Option<Box<dyn JobHook>>>,
+    stop_timeout: u64,
 }
 
 impl<Tz> DefaultJobExecutor<Tz>
@@ -36,10 +37,21 @@ where
     Tz: chrono::TimeZone + Send + Sync,
     Tz::Offset: Send + Sync,
 {
+    /// Create a new Default JobExecutor.
+    ///
+    /// # Arguments
+    /// `jobs`: A `JobStorage` trait
+    ///
+    /// `polling_time`: How often should `JobExecutor` query the `JobStorage`.
+    ///
+    /// `hooks`: A `JobHook`, can be None.
+    ///
+    /// `stop_timeout`: How long should force cancel a job when call `stop()` fn.
     pub fn new(
         jobs: Arc<dyn JobStorage<Tz>>,
         polling_time: Option<u64>,
         hooks: Option<Box<dyn JobHook>>,
+        stop_timeout: u64,
     ) -> Self {
         let shutdown_chan = tokio::sync::broadcast::channel(1);
         Self {
@@ -48,7 +60,8 @@ where
             shutdown_channel: shutdown_chan.0,
             should_next: Arc::new(RwLock::new(true)),
             polling_time: polling_time.unwrap_or(5),
-            hook: Arc::new(RwLock::new(hooks)),
+            hook: Arc::new(hooks),
+            stop_timeout,
         }
     }
 }
@@ -58,6 +71,7 @@ where
     Tz: chrono::TimeZone + Send + Sync + 'static,
     Tz::Offset: Send + Sync,
 {
+    /// Start the job executor.
     fn start(&self) -> JoinHandle<()> {
         let storage = self.jobs.to_owned();
         let shutdown_sender = self.shutdown_channel.to_owned();
@@ -67,7 +81,7 @@ where
         let hook = self.hook.to_owned();
         tokio::spawn(async move {
             loop {
-                let should_next = *should_next.read().await;
+                let should_next = *should_next.read();
 
                 if !should_next {
                     let _ = shutdown_sender.send(());
@@ -88,7 +102,7 @@ where
                     let hook = hook.to_owned();
                     let storage = storage.to_owned();
                     let handle = tokio::spawn(async move {
-                        let handle_action = match hook.read().await.as_deref() {
+                        let handle_action = match &*hook {
                             Some(v) => v.on_execute(&name, &id, &args).await,
                             None => JobHookReturn::NoAction,
                         };
@@ -111,9 +125,8 @@ where
                         if !should_execute {
                             return;
                         }
-                        let job_context = job.get_job_context().to_owned();
-                        let job_execute_result = job.execute().await;
-                        let handle_action = match hook.read().await.as_deref() {
+                        let (job_context, job_execute_result) = job.execute().await;
+                        let handle_action = match &*hook {
                             Some(v) => {
                                 let mut final_result = v
                                     .on_complete(
@@ -159,6 +172,21 @@ where
                             }
                             None => JobHookReturn::NoAction,
                         };
+
+                        let handle_action = if handle_action != JobHookReturn::RemoveJob
+                            && handle_action != JobHookReturn::RetryJob
+                        {
+                            if job_context.is_delete_scheduled() {
+                                JobHookReturn::RemoveJob
+                            } else if job_context.is_retry_scheduled() {
+                                JobHookReturn::RetryJob
+                            } else {
+                                handle_action
+                            }
+                        } else {
+                            handle_action
+                        };
+
                         let _ = match handle_action {
                             JobHookReturn::RemoveJob => {
                                 match storage.delete_job(&id).await {
@@ -189,7 +217,7 @@ where
                         };
                         ()
                     });
-                    let mut task_vec = tasks.write().await;
+                    let mut task_vec = tasks.write();
                     task_vec.push(handle);
                 }
 
@@ -198,20 +226,32 @@ where
         })
     }
 
+    /// Gracefully stop all the pending jobs and shut down the `JobExecutor`
     fn stop(&self) -> Pin<Box<dyn Future<Output = ()>>> {
-        let mut shutdown_recv = self.shutdown_channel.subscribe();
-        let should_next = self.should_next.to_owned();
+        *self.should_next.write() = false;
+        let mut shutdown_channel = self.shutdown_channel.subscribe();
         let tasks = self.tasks.to_owned();
+        let timeout = self.stop_timeout;
         Box::pin(async move {
-            *should_next.write().await = false;
-            let _ = shutdown_recv.recv().await;
-            let tasks = tasks.read().await;
-            for i in tasks.iter() {
-                loop {
-                    if i.is_finished() {
-                        break;
+            let _ = shutdown_channel.recv().await;
+            for i in tasks.read().iter() {
+                let timeout_fut = tokio::time::sleep(std::time::Duration::from_secs(timeout));
+                let wait_fut = async {
+                    loop {
+                        if i.is_finished() {
+                            break;
+                        } else {
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                        }
                     }
-                    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                };
+                tokio::select! {
+                    _ = timeout_fut => {
+                        i.abort();
+                    },
+                    _ = wait_fut => {
+
+                    }
                 }
             }
         })

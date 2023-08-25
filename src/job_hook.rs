@@ -9,8 +9,8 @@ pub trait JobHook: Send + Sync {
         name: &str,
         id: &str,
         args: &Option<Value>,
-        result: &Result<Value, Value>,
-        retry_times:u64
+        result: &anyhow::Result<Value>,
+        retry_times: u64,
     ) -> JobHookReturn;
     async fn on_success(
         &self,
@@ -25,7 +25,7 @@ pub trait JobHook: Send + Sync {
         name: &str,
         id: &str,
         args: &Option<Value>,
-        error: &Value,
+        error: &anyhow::Error,
         retry_times: u64,
     ) -> JobHookReturn;
 }

@@ -20,9 +20,6 @@ use example_hook::ExampleHook;
 use example_jobs::ExampleJob;
 use tokio_scheduler_rs::{DefaultJobExecutor, JobScheduler, MemoryJobStorage};
 
-pub mod example_hook;
-pub mod example_jobs;
-
 #[tokio::main]
 async fn main() {
     // Create a new `job_storage`, you can impl it by yourself.
@@ -34,6 +31,7 @@ async fn main() {
         job_storage.to_owned(),
         Some(10),
         Some(Box::new(ExampleHook)),
+        30
     );
     let scheduler = JobScheduler::new(job_storage, job_executor);
 
