@@ -48,7 +48,7 @@ async fn main() {
     // Don't forget to start it.
     scheduler.start().await.unwrap();
     // If you don't want to wait it, then:
-    // scheduler.start().await;
+    // scheduler.start();
 
     tokio::time::sleep(std::time::Duration::from_secs(60)).await;
 

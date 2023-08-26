@@ -15,9 +15,9 @@ impl ScheduleJob for ExampleJob {
 
     fn execute(
         &self,
-        ctx: &mut tokio_scheduler_rs::job::JobContext,
+        ctx: tokio_scheduler_rs::job::JobContext,
     ) -> std::pin::Pin<
-        Box<dyn futures::Future<Output = tokio_scheduler_rs::Result<serde_json::Value>> + Send>,
+        Box<dyn futures::Future<Output = tokio_scheduler_rs::Result<Value>> + Send>,
     > {
         Box::pin(async move {
             println!("Hello,World! Job context is: {:#?}", ctx);
