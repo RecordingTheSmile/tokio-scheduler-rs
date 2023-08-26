@@ -279,9 +279,9 @@ where
         args: &Option<Value>,
     ) -> Result<Option<WillExecuteJobFuture>, SchedulerError> {
         if let Some(task) = self.tasks.get(name) {
-            let mut job_context = JobContext::new(id.to_owned(), args.to_owned(), 0);
+            let job_context = JobContext::new(id.to_owned(), args.to_owned(), 0);
             Ok(Some(WillExecuteJobFuture::new(
-                task.execute(&mut job_context),
+                task.execute(job_context.to_owned()),
                 job_context,
             )))
         } else {

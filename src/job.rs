@@ -1,7 +1,6 @@
+use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
-
-use serde_json::Value;
 
 /// All jobs should implements this trait
 ///
@@ -18,7 +17,7 @@ use serde_json::Value;
 ///             String::from("TestJob")
 ///         }
 ///
-///         fn execute(&self,ctx: &mut JobContext) -> Pin<Box<dyn Future<Output=()>>> {
+///         fn execute(&self,ctx: JobContext) -> Pin<Box<dyn Future<Output=()>>> {
 ///             Box::pin(async move{
 ///                 println!("Hello,World! My Task Uuid is: {}",ctx.get_id());
 ///             })
@@ -29,7 +28,7 @@ use serde_json::Value;
 /// `job_name` must be unique!!!
 pub trait ScheduleJob: Send + Sync {
     fn get_job_name(&self) -> String;
-    fn execute(&self, ctx: &mut JobContext) -> JobFuture;
+    fn execute(&self, ctx: JobContext) -> JobFuture;
 }
 
 /// A context which stores job information when running
@@ -38,8 +37,6 @@ pub struct JobContext {
     args: Option<Value>,
     retry_times: u64,
     id: String,
-    should_be_deleted: bool,
-    should_retry: bool,
 }
 
 impl JobContext {
@@ -50,8 +47,6 @@ impl JobContext {
             id,
             args,
             retry_times,
-            should_be_deleted: false,
-            should_retry: false,
         }
     }
 
@@ -94,26 +89,6 @@ impl JobContext {
     pub fn get_id(&self) -> &str {
         self.id.as_str()
     }
-
-    /// Mark this job as delete. **This can be override by job hook.**
-    pub fn delete(&mut self) {
-        self.should_be_deleted = true;
-    }
-
-    /// Mark this job as retry. **This can be override by job hook.**
-    pub fn retry(&mut self) {
-        self.should_retry = true;
-    }
-
-    /// Get if this job should be deleted.
-    pub fn is_delete_scheduled(&self) -> bool {
-        self.should_be_deleted
-    }
-
-    /// Get if this job should be retried.
-    pub fn is_retry_scheduled(&self) -> bool {
-        self.should_retry
-    }
 }
 
 impl Default for JobContext {
@@ -122,8 +97,6 @@ impl Default for JobContext {
             args: None,
             retry_times: 0,
             id: String::new(),
-            should_retry: false,
-            should_be_deleted: false,
         }
     }
 }
@@ -149,5 +122,26 @@ impl WillExecuteJobFuture {
 
     pub fn get_job_context(&self) -> &JobContext {
         &self.context
+    }
+}
+
+#[cfg(test)]
+mod test_job {
+    use crate::{JobContext, JobFuture, ScheduleJob};
+    use serde_json::Value;
+
+    pub struct TestJob;
+
+    impl ScheduleJob for TestJob {
+        fn get_job_name(&self) -> String {
+            String::from("TestJob")
+        }
+
+        fn execute(&self, ctx: JobContext) -> JobFuture {
+            Box::pin(async move {
+                println!("{:#?}", ctx.id);
+                Ok(Value::default())
+            })
+        }
     }
 }

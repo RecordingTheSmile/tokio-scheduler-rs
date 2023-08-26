@@ -85,7 +85,7 @@ where
     /// ```rust
     ///
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
-    /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc);
+    /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc,30);
     /// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
     /// ```
     pub async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {

@@ -173,20 +173,6 @@ where
                             None => JobHookReturn::NoAction,
                         };
 
-                        let handle_action = if handle_action != JobHookReturn::RemoveJob
-                            && handle_action != JobHookReturn::RetryJob
-                        {
-                            if job_context.is_delete_scheduled() {
-                                JobHookReturn::RemoveJob
-                            } else if job_context.is_retry_scheduled() {
-                                JobHookReturn::RetryJob
-                            } else {
-                                handle_action
-                            }
-                        } else {
-                            handle_action
-                        };
-
                         let _ = match handle_action {
                             JobHookReturn::RemoveJob => {
                                 match storage.delete_job(&id).await {
