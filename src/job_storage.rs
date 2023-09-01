@@ -58,6 +58,7 @@ where
     /// Add a job which is going to retry.
     async fn add_retry_job(
         &self,
+        origin_id: &str,
         job_name: &str,
         args: &Option<Value>,
         retry_times: u64,
@@ -75,6 +76,8 @@ where
     /// A bool which represents the existence of job with given JobId
     async fn has_job(&self, id: &str) -> Result<bool, SchedulerError>;
     /// Get all jobs which should execute now.
+    ///
+    /// The return value should be `(JobName,JobId,JobArgs,JobRetryTimes)`
     ///
     /// # Returns
     /// A vec which store all future which should execute now. The last `u64` argument represents `retry_times`. If the task is not in retry queue, this value should be 0.
@@ -113,7 +116,7 @@ where
 {
     tasks: DashMap<String, Box<dyn ScheduleJob>>,
     jobs: DashMap<String, (Schedule, String, Option<Value>)>,
-    retry_jobs: DashMap<String, (String, Option<Value>, u64)>,
+    retry_jobs: DashMap<String, (String, String, Option<Value>, u64)>,
     timezone: Tz,
     last_check_time: Arc<RwLock<DateTime<Tz>>>,
 }
@@ -189,6 +192,7 @@ where
 
     async fn add_retry_job(
         &self,
+        origin_id: &str,
         job_name: &str,
         args: &Option<Value>,
         retry_times: u64,
@@ -197,7 +201,12 @@ where
 
         self.retry_jobs.insert(
             id.to_owned(),
-            (job_name.to_owned(), args.to_owned(), retry_times),
+            (
+                origin_id.to_owned(),
+                job_name.to_owned(),
+                args.to_owned(),
+                retry_times,
+            ),
         );
 
         Ok(id)
@@ -254,10 +263,10 @@ where
             .iter()
             .map(|v| {
                 (
-                    v.value().0.to_owned(),
-                    v.key().to_owned(),
                     v.value().1.to_owned(),
-                    v.value().2,
+                    v.value().0.to_owned(),
+                    v.value().2.to_owned(),
+                    v.value().3,
                 )
             })
             .collect();

@@ -187,7 +187,12 @@ where
                             }
                             JobHookReturn::RetryJob => {
                                 match storage
-                                    .add_retry_job(&name, &args, job_context.get_retry_times() + 1)
+                                    .add_retry_job(
+                                        &id,
+                                        &name,
+                                        &args,
+                                        job_context.get_retry_times() + 1,
+                                    )
                                     .await
                                 {
                                     Ok(_) => (),
