@@ -92,6 +92,7 @@ where
         name: &str,
         id: &str,
         args: &Option<Value>,
+        retry_times: u64,
     ) -> Result<Option<WillExecuteJobFuture>, SchedulerError>;
     /// Get many `job` from `JobStorage` by it's name
     ///
@@ -103,7 +104,7 @@ where
     /// **You must return the values in the same order**
     async fn get_jobs_by_name(
         &self,
-        exprs: &Vec<(String, String, Option<Value>)>,
+        exprs: &Vec<(String, String, Option<Value>, u64)>,
     ) -> Result<Vec<(WillExecuteJobFuture, String, String, Option<Value>)>, SchedulerError>;
 }
 
@@ -286,9 +287,10 @@ where
         name: &str,
         id: &str,
         args: &Option<Value>,
+        retry_times: u64,
     ) -> Result<Option<WillExecuteJobFuture>, SchedulerError> {
         if let Some(task) = self.tasks.get(name) {
-            let job_context = JobContext::new(id.to_owned(), args.to_owned(), 0);
+            let job_context = JobContext::new(id.to_owned(), args.to_owned(), retry_times);
             Ok(Some(WillExecuteJobFuture::new(
                 task.execute(job_context.to_owned()),
                 job_context,
@@ -300,12 +302,12 @@ where
 
     async fn get_jobs_by_name(
         &self,
-        exprs: &Vec<(String, String, Option<Value>)>,
+        exprs: &Vec<(String, String, Option<Value>, u64)>,
     ) -> Result<Vec<(WillExecuteJobFuture, String, String, Option<Value>)>, SchedulerError> {
         let mut result = vec![];
 
-        for (name, id, args) in exprs {
-            let job = match self.get_job_by_name(&name, &id, args).await? {
+        for (name, id, args, retry_times) in exprs {
+            let job = match self.get_job_by_name(&name, &id, args, *retry_times).await? {
                 Some(j) => j,
                 None => continue,
             };

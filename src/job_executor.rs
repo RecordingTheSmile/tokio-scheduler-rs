@@ -92,7 +92,12 @@ where
                     Err(_) => continue,
                 };
                 let should_exec = match storage
-                    .get_jobs_by_name(&should_exec.into_iter().map(|v| (v.0, v.1, v.2)).collect())
+                    .get_jobs_by_name(
+                        &should_exec
+                            .into_iter()
+                            .map(|v| (v.0, v.1, v.2, v.3))
+                            .collect(),
+                    )
                     .await
                 {
                     Ok(v) => v,
