@@ -17,7 +17,7 @@ pub trait JobHook: Send + Sync {
         name: &str,
         id: &str,
         args: &Option<Value>,
-        return_vaule: &Value,
+        return_value: &Value,
         retry_times: u64,
     ) -> JobHookReturn;
     async fn on_fail(

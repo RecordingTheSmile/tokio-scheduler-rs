@@ -24,7 +24,7 @@ impl JobHook for ExampleHook {
         name: &str,
         id: &str,
         args: &Option<Value>,
-        result: &Result<Value, Value>,
+        result: &anyhow::Result<Value>,
         retry_times: u64,
     ) -> JobHookReturn {
         println!(
@@ -60,7 +60,7 @@ impl JobHook for ExampleHook {
         name: &str,
         id: &str,
         args: &Option<Value>,
-        error: &Value,
+        error: &anyhow::Error,
         retry_times: u64,
     ) -> JobHookReturn {
         println!(

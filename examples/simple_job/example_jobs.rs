@@ -1,4 +1,4 @@
-use tokio_scheduler_rs::{ScheduleJob, Value};
+use tokio_scheduler_rs::{JobFuture, ScheduleJob, Value};
 
 pub struct ExampleJob;
 
@@ -13,11 +13,7 @@ impl ScheduleJob for ExampleJob {
         String::from(Self::JOB_NAME)
     }
 
-    fn execute(
-        &self,
-        ctx: tokio_scheduler_rs::job::JobContext,
-    ) -> std::pin::Pin<Box<dyn futures::Future<Output = tokio_scheduler_rs::Result<Value>> + Send>>
-    {
+    fn execute(&self, ctx: tokio_scheduler_rs::job::JobContext) -> JobFuture {
         Box::pin(async move {
             println!("Hello,World! Job context is: {:#?}", ctx);
 
