@@ -18,6 +18,7 @@ async fn main() {
         job_storage.to_owned(),
         Some(10),
         Some(Box::new(ExampleHook)),
+        60,
     );
     let scheduler = JobScheduler::new(job_storage, job_executor);
 
