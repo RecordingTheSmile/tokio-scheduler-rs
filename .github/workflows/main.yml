@@ -5,13 +5,15 @@ on:
   
 jobs:
   check:
-    name: Check
+    name: Check and Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Check crate
         run: cargo check
+      - name: Test crate
+        run: cargo test
 
   publish:
     name: Publish

@@ -1,13 +1,24 @@
 use std::future::Future;
 
 use parking_lot::RwLock;
+use serde_json::Value;
 use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::job_hook::{JobHook, JobHookReturn};
 use crate::job_storage::JobStorage;
+use crate::WillExecuteJobFuture;
 
 use tokio::task::JoinHandle;
+
+macro_rules! print_log {
+    ($level:ident,$message: expr) => {
+        log::$level!("[Tokio-Scheduler-Rs] {}", $message)
+    };
+    ($level:ident,$message: expr,$extend_message:expr) => {
+        log::$level!("[Tokio-Scheduler-Rs] {}: {:?}", $message, $extend_message)
+    };
+}
 
 /// `JobExecutor` is used to execute jobs
 pub trait JobExecutor: Send + Sync {
@@ -34,7 +45,7 @@ where
 
 impl<Tz> DefaultJobExecutor<Tz>
 where
-    Tz: chrono::TimeZone + Send + Sync,
+    Tz: chrono::TimeZone + Send + Sync + 'static,
     Tz::Offset: Send + Sync,
 {
     /// Create a new Default JobExecutor.
@@ -64,6 +75,172 @@ where
             stop_timeout,
         }
     }
+
+    async fn process_tasks(
+        all_tasks: Vec<(WillExecuteJobFuture, String, String, Option<Value>)>,
+        hook: Arc<Option<Box<dyn JobHook>>>,
+        storage: Arc<dyn JobStorage<Tz>>,
+        tasks: Arc<RwLock<Vec<JoinHandle<()>>>>,
+    ) {
+        for (job, name, id, args) in all_tasks {
+            let hook = hook.to_owned();
+            let storage = storage.to_owned();
+            let handle = tokio::spawn(async move {
+                // call job hook to judge if we execute this task or cancel/remove this task
+                let handle_action = match &*hook {
+                    Some(v) => v.on_execute(&name, &id, &args).await,
+                    None => JobHookReturn::NoAction,
+                };
+                let should_execute = match handle_action {
+                    JobHookReturn::CancelRunning => false,
+                    JobHookReturn::RemoveJob => {
+                        match storage.delete_job(&id).await {
+                            Ok(_) => (),
+                            Err(e) => {
+                                print_log!(error, "SchedulerError", e);
+                            }
+                        };
+                        false
+                    }
+                    _ => true,
+                };
+                if !should_execute {
+                    return;
+                }
+                let (job_context, job_execute_result) = job.execute().await;
+                let handle_action = match &*hook {
+                    Some(v) => {
+                        let mut final_result = v
+                            .on_complete(
+                                &name,
+                                &id,
+                                &args,
+                                &job_execute_result,
+                                job_context.get_retry_times(),
+                            )
+                            .await;
+
+                        match job_execute_result {
+                            Ok(jo) => {
+                                let success_result = v
+                                    .on_success(
+                                        &name,
+                                        &id,
+                                        &args,
+                                        &jo,
+                                        job_context.get_retry_times(),
+                                    )
+                                    .await;
+                                if success_result != final_result {
+                                    final_result = success_result;
+                                }
+                            }
+                            Err(je) => {
+                                let error_result = v
+                                    .on_fail(&name, &id, &args, &je, job_context.get_retry_times())
+                                    .await;
+                                if error_result != final_result {
+                                    final_result = error_result;
+                                }
+                            }
+                        }
+                        final_result
+                    }
+                    None => JobHookReturn::NoAction,
+                };
+
+                _ = match handle_action {
+                    JobHookReturn::RemoveJob => {
+                        match storage.delete_job(&id).await {
+                            Ok(_) => (),
+                            Err(e) => {
+                                print_log!(error, "JobHookError", e);
+                            }
+                        };
+                    }
+                    JobHookReturn::RetryJob => {
+                        match storage
+                            .add_retry_job(&id, &name, &args, job_context.get_retry_times() + 1)
+                            .await
+                        {
+                            Ok(_) => (),
+                            Err(e) => {
+                                print_log!(error, "JobHookError", e);
+                            }
+                        };
+                    }
+                    _ => (),
+                };
+                ()
+            });
+            let mut task_vec = tasks.write();
+            task_vec.push(handle);
+        }
+    }
+
+    async fn perform_job_tasks(
+        storage: Arc<dyn JobStorage<Tz>>,
+        shutdown_sender: tokio::sync::broadcast::Sender<()>,
+        should_next: Arc<RwLock<bool>>,
+        tasks: Arc<RwLock<Vec<JoinHandle<()>>>>,
+        polling_time: u64,
+        hook: Arc<Option<Box<dyn JobHook>>>,
+    ) {
+        loop {
+            // should we go next or exit (if recv the close signal) ?
+            let should_next = *should_next.read();
+
+            // exit if recv close signal
+            if !should_next {
+                _ = shutdown_sender.send(());
+                break;
+            }
+
+            // remove all completed jobs
+            {
+                let tasks = tasks.to_owned();
+                let mut tasks_remover = tasks.write();
+                tasks_remover.retain(|task| !task.is_finished());
+            }
+
+            // get all tasks should be executed from storage
+            let should_exec = match storage.get_all_should_execute_jobs().await {
+                Ok(t) => t,
+                Err(e) => {
+                    print_log!(error, "Get job from storage error", e);
+                    continue;
+                }
+            };
+
+            // convert should_exec tasks to `WillExecuteJobFuture`
+            let should_exec = match storage
+                .get_jobs_by_name(
+                    &should_exec
+                        .into_iter()
+                        .map(|v| (v.0, v.1, v.2, v.3))
+                        .collect(),
+                )
+                .await
+            {
+                Ok(v) => v,
+                Err(e) => {
+                    print_log!(error, "Convert raw job to WillExecuteJobFuture error", e);
+                    continue;
+                }
+            };
+
+            Self::process_tasks(
+                should_exec,
+                hook.to_owned(),
+                storage.to_owned(),
+                tasks.to_owned(),
+            )
+            .await;
+
+            // wait for next time execute
+            tokio::time::sleep(std::time::Duration::from_secs(polling_time)).await;
+        }
+    }
 }
 
 impl<Tz> JobExecutor for DefaultJobExecutor<Tz>
@@ -80,162 +257,15 @@ where
         let polling_time = self.polling_time;
         let hook = self.hook.to_owned();
         tokio::spawn(async move {
-            loop {
-                // should we go next or exit (if recv the close signal) ?
-                let should_next = *should_next.read();
-
-                // exit if recv close signal
-                if !should_next {
-                    _ = shutdown_sender.send(());
-                    break;
-                }
-
-                // get all tasks should be executed from storage
-                let should_exec = match storage.get_all_should_execute_jobs().await {
-                    Ok(t) => t,
-                    Err(e) => {
-                        log::error!("[Tokio-Scheduler-Rs] Get job from storage error: {:#?}", e);
-                        continue;
-                    }
-                };
-
-                // convert should_exec tasks to `WillExecuteJobFuture`
-                let should_exec = match storage
-                    .get_jobs_by_name(
-                        &should_exec
-                            .into_iter()
-                            .map(|v| (v.0, v.1, v.2, v.3))
-                            .collect(),
-                    )
-                    .await
-                {
-                    Ok(v) => v,
-                    Err(e) => {
-                        log::error!(
-                            "[Tokio-Scheduler-Rs] Convert raw job to WillExecuteJobFuture error: {:#?}",
-                            e
-                        );
-                        continue;
-                    }
-                };
-                for (job, name, id, args) in should_exec {
-                    let hook = hook.to_owned();
-                    let storage = storage.to_owned();
-                    let handle = tokio::spawn(async move {
-                        // call job hook to judge if we execute this task or cancel/remove this task
-                        let handle_action = match &*hook {
-                            Some(v) => v.on_execute(&name, &id, &args).await,
-                            None => JobHookReturn::NoAction,
-                        };
-                        let should_execute = match handle_action {
-                            JobHookReturn::CancelRunning => false,
-                            JobHookReturn::RemoveJob => {
-                                match storage.delete_job(&id).await {
-                                    Ok(_) => (),
-                                    Err(e) => {
-                                        log::error!(
-                                            "[Tokio-Scheduler-Rs] SchedulerError: {:#?}",
-                                            e
-                                        );
-                                    }
-                                };
-                                false
-                            }
-                            _ => true,
-                        };
-                        if !should_execute {
-                            return;
-                        }
-                        let (job_context, job_execute_result) = job.execute().await;
-                        let handle_action = match &*hook {
-                            Some(v) => {
-                                let mut final_result = v
-                                    .on_complete(
-                                        &name,
-                                        &id,
-                                        &args,
-                                        &job_execute_result,
-                                        job_context.get_retry_times(),
-                                    )
-                                    .await;
-
-                                match job_execute_result {
-                                    Ok(jo) => {
-                                        let success_result = v
-                                            .on_success(
-                                                &name,
-                                                &id,
-                                                &args,
-                                                &jo,
-                                                job_context.get_retry_times(),
-                                            )
-                                            .await;
-                                        if success_result != final_result {
-                                            final_result = success_result;
-                                        }
-                                    }
-                                    Err(je) => {
-                                        let error_result = v
-                                            .on_fail(
-                                                &name,
-                                                &id,
-                                                &args,
-                                                &je,
-                                                job_context.get_retry_times(),
-                                            )
-                                            .await;
-                                        if error_result != final_result {
-                                            final_result = error_result;
-                                        }
-                                    }
-                                }
-                                final_result
-                            }
-                            None => JobHookReturn::NoAction,
-                        };
-
-                        _ = match handle_action {
-                            JobHookReturn::RemoveJob => {
-                                match storage.delete_job(&id).await {
-                                    Ok(_) => (),
-                                    Err(e) => {
-                                        log::error!(
-                                            "[Tokio-Scheduler-Rs] SchedulerError: {:#?}",
-                                            e
-                                        );
-                                    }
-                                };
-                            }
-                            JobHookReturn::RetryJob => {
-                                match storage
-                                    .add_retry_job(
-                                        &id,
-                                        &name,
-                                        &args,
-                                        job_context.get_retry_times() + 1,
-                                    )
-                                    .await
-                                {
-                                    Ok(_) => (),
-                                    Err(e) => {
-                                        log::error!(
-                                            "[Tokio-Scheduler-Rs] SchedulerError: {:#?}",
-                                            e
-                                        );
-                                    }
-                                };
-                            }
-                            _ => (),
-                        };
-                        ()
-                    });
-                    let mut task_vec = tasks.write();
-                    task_vec.push(handle);
-                }
-
-                // wait for next time execute
-                tokio::time::sleep(std::time::Duration::from_secs(polling_time)).await;
-            }
+            Self::perform_job_tasks(
+                storage,
+                shutdown_sender,
+                should_next,
+                tasks,
+                polling_time,
+                hook,
+            )
+            .await;
         })
     }
 
@@ -256,7 +286,7 @@ where
                 };
                 tokio::select! {
                     _ = timeout_fut => {
-                        log::warn!("[Tokio-Scheduler-Rs] Timeout when waiting for task to exit, ignore it and continue.")
+                        print_log!(warn,"Timeout when waiting for task to exit, ignore it and continue.");
                     },
                     _ = wait_fut => {
 
