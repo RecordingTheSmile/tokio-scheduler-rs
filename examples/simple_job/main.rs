@@ -13,7 +13,7 @@ async fn main() {
     // Create a new `job_executor`.
     // The second `u64` args means how long does `DefaultJobExecutor` query the `job_storage`.
     // If you set it to `None`, Some(5) is used as default.
-    let job_executor = DefaultJobExecutor::new(job_storage.to_owned(), Some(10), None, 30);
+    let job_executor = DefaultJobExecutor::new(job_storage.to_owned(), Some(1), None, 30);
     let scheduler = JobScheduler::new(job_storage, job_executor);
 
     // Register a job
@@ -27,13 +27,13 @@ async fn main() {
         .unwrap();
 
     // Don't forget to start it.
-    scheduler.start().await.unwrap();
-    // If you don't want to wait it, then:
-    // scheduler.start().await;
+    println!("Start scheduler!");
+    scheduler.start();
 
-    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
 
     // Wait for all jobs are processed and stop the schedule.
     // The `JobExecutor` will stop execute NEW job once you execute this.
+    println!("Stop scheduler!");
     scheduler.wait_for_stop().await;
 }

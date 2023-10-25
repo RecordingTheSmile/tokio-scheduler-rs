@@ -2,7 +2,7 @@
 
 <div style="text-align: center">Yet Another JobScheduler</div>
 
-<a href="README_CN.MD">简体中文</a>
+<div style="text-align: center"><a href="README_CN.MD">简体中文</a></div>
 
 # Features
 * Async Completely
@@ -16,9 +16,93 @@
 ```rust
 use std::sync::Arc;
 
-use example_hook::ExampleHook;
-use example_jobs::ExampleJob;
-use tokio_scheduler_rs::{DefaultJobExecutor, JobScheduler, MemoryJobStorage};
+use tokio_scheduler_rs::{job_hook::JobHook,job_hook::JobHookReturn,async_trait,DefaultJobExecutor, JobScheduler, MemoryJobStorage, JobContext, JobFuture,Value,ScheduleJob};
+
+struct ExampleJob;
+
+impl ScheduleJob for ExampleJob{
+    fn get_job_name(&self) -> String {
+        String::from("ExampleJob")
+    }
+
+    fn execute(&self, ctx: JobContext) -> JobFuture {
+        Box::pin(async move{
+            println!("Hello, World! My JobId is {}",ctx.get_id());
+            Ok(Value::default())
+        })
+    }
+}
+
+struct ExampleHook;
+
+#[async_trait]
+impl JobHook for ExampleHook {
+    async fn on_execute(&self, name: &str, id: &str, args: &Option<Value>) -> JobHookReturn {
+        println!(
+            "Task: {} with id: {} and args: {:#?} is going to execute!",
+            name, id, args
+        );
+        JobHookReturn::NoAction
+        // If you want to Cancel this running ONLY THIS TIME:
+        // JobHookReturn::CancelRunning
+        // or you want to Cancel this running and remove this schedule forever:
+        // JobHookReturn::RemoveJob
+    }
+    async fn on_complete(
+        &self,
+        name: &str,
+        id: &str,
+        args: &Option<Value>,
+        result: &anyhow::Result<Value>,
+        retry_times: u64,
+    ) -> JobHookReturn {
+        println!(
+            "Task: {} with id: {} and args: {:#?} is complete! Result is: {:#?}, retry time is: {}",
+            name, id, args, result, retry_times
+        );
+        JobHookReturn::NoAction
+        // If you want to Cancel this running and remove this schedule forever:
+        // JobHookReturn::RemoveJob
+        // Or if you want to retry this job:
+        // JobHookReturn::RetryJob
+    }
+    async fn on_success(
+        &self,
+        name: &str,
+        id: &str,
+        args: &Option<Value>,
+        return_vaule: &Value,
+        retry_times: u64,
+    ) -> JobHookReturn {
+        println!(
+            "Task: {} with id: {} and args: {:#?} is complete! ReturnValue is: {:#?}, retry time is: {}",
+            name, id, args, return_vaule, retry_times
+        );
+        JobHookReturn::NoAction
+        // If you want to Cancel this running and remove this schedule forever:
+        // JobHookReturn::RemoveJob
+        // Or if you want to retry this job:
+        // JobHookReturn::RetryJob
+    }
+    async fn on_fail(
+        &self,
+        name: &str,
+        id: &str,
+        args: &Option<Value>,
+        error: &anyhow::Error,
+        retry_times: u64,
+    ) -> JobHookReturn {
+        println!(
+            "Task: {} with id: {} and args: {:#?} is complete! Error is: {:#?}, retry time is: {}",
+            name, id, args, error, retry_times
+        );
+        JobHookReturn::NoAction
+        // If you want to Cancel this running and remove this schedule forever:
+        // JobHookReturn::RemoveJob
+        // Or if you want to retry this job:
+        // JobHookReturn::RetryJob
+    }
+}
 
 #[tokio::main]
 async fn main() {
@@ -41,19 +125,19 @@ async fn main() {
     // Set a schedule with given cron expression.
     // !!! PLEASE NOTICE THAT YOU MUST REGISTER THE JOB FIRST !!!
     scheduler
-        .add_job(ExampleJob::JOB_NAME, "*/5 * * * * * *", &None)
+        .add_job(&ExampleJob.get_job_name(), "* * * * * * *", &None)
         .await
         .unwrap();
 
     // Don't forget to start it.
-    scheduler.start().await.unwrap();
-    // If you don't want to wait it, then:
-    // scheduler.start();
+    println!("Start scheduler");
+    scheduler.start();
 
-    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
 
     // Wait for all jobs are processed and stop the schedule.
     // The `JobExecutor` will stop execute NEW job once you execute this.
+    println!("Stop scheduler");
     scheduler.wait_for_stop().await;
 }
 ```

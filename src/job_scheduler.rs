@@ -12,13 +12,34 @@ use crate::job_storage::{JobStorage, MemoryJobStorage};
 ///
 /// # Examples
 /// ```rust
+/// # use serde_json::Value;
+/// # use tokio_scheduler_rs::{JobContext, JobFuture, ScheduleJob};
 /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
-/// let scheduler = JobScheduler::default_with_timezone(chrono_tz::PRC, 30);
-/// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
-/// scheduler.add_job("HelloWorldJob".into(),"*/5 * * * * * *".into(),None).await.unwrap();
+///
+///  async fn test(){
+///
+/// struct ExampleJob;
+///
+/// impl ScheduleJob for ExampleJob{
+/// fn get_job_name(&self) -> String {
+///         String::from("ExampleJob")
+///     }
+///
+/// fn execute(&self, ctx: JobContext) -> JobFuture {
+///         Box::pin(async move{
+///             println!("Hello, World! My JobId is {}",ctx.get_id());
+///             Ok(Value::default())
+///         })
+///     }
+/// }
+///
+/// let scheduler = JobScheduler::default_with_timezone(chrono_tz::Universal, 30);
+/// scheduler.register_job(Box::new(ExampleJob)).await.unwrap();
+/// scheduler.add_job(&ExampleJob.get_job_name(),"*/5 * * * * * *".into(),&None).await.unwrap();
 /// scheduler.restore_jobs().await.unwrap(); // This step is used to restore job execute status.
 ///                                          // Please notice that you can implement you own job storage to store job status.
 /// scheduler.start().await.unwrap(); // `start()` returns a tokio::JoinHandle<()>, you can continue this program if you don't await it.
+/// # }
 /// ```
 pub struct JobScheduler<'a, Tz: chrono::TimeZone + Send + Sync> {
     job_storage: Arc<dyn JobStorage<Tz> + 'a>,
@@ -38,8 +59,8 @@ where
     /// # use tokio_scheduler_rs::job_executor::DefaultJobExecutor;
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
     /// # use tokio_scheduler_rs::job_storage::MemoryJobStorage;
-    /// let job_storage = Arc::new(MemoryJobStorage::new(chrono_tz::US));
-    /// let scheduler = JobScheduler::new(job_storage,DefaultJobExecutor::new(job_storage));
+    /// let job_storage = Arc::new(MemoryJobStorage::new(chrono_tz::Universal));
+    /// let scheduler = JobScheduler::new(job_storage.to_owned(),DefaultJobExecutor::new(job_storage,None,None,60));
     /// ```
     pub fn new(
         job_storage: Arc<impl JobStorage<Tz> + 'a>,
@@ -63,13 +84,13 @@ where
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
     /// # use tokio_scheduler_rs::job_storage::MemoryJobStorage;
     /// let job_storage = Arc::new(MemoryJobStorage::new(chrono::Utc));
-    /// let scheduler = JobScheduler::new(job_storage,DefaultJobExecutor::new(job_storage));
+    /// let scheduler = JobScheduler::new(job_storage.to_owned(),DefaultJobExecutor::new(job_storage,None,None,60));
     /// ```
     ///
     /// # Example
     /// ```rust
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
-    /// let scheduler = JobScheduler::default_with_timezone(chrono_tz::US,30);
+    /// let scheduler = JobScheduler::default_with_timezone(chrono_tz::Universal,30);
     /// ```
     pub fn default_with_timezone(timezone: Tz, stop_timeout: u64) -> Self {
         let storage = Arc::new(MemoryJobStorage::new(timezone));
@@ -84,9 +105,30 @@ where
     /// # Example
     /// ```rust
     ///
+    /// # use serde_json::Value;
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
+    /// # use tokio_scheduler_rs::{JobContext, JobFuture, ScheduleJob};
+    ///
+    /// struct ExampleJob;
+    ///
+    /// impl ScheduleJob for ExampleJob{
+    /// fn get_job_name(&self) -> String {
+    ///         String::from("ExampleJob")
+    ///     }
+    ///
+    /// fn execute(&self, ctx: JobContext) -> JobFuture {
+    ///         Box::pin(async move{
+    ///             println!("Hello, World! My JobId is {}",ctx.get_id());
+    ///             Ok(Value::default())
+    ///         })
+    ///     }
+    /// }
+    ///
+    ///
+    /// # async fn test(){
     /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc,30);
-    /// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
+    /// scheduler.register_job(Box::new(ExampleJob)).await.unwrap();
+    /// # }
     /// ```
     pub async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
         self.job_storage.register_job(job).await?;
@@ -97,10 +139,28 @@ where
     ///
     /// # Example
     ///```rust
+    /// # use serde_json::Value;
     /// # use tokio_scheduler_rs::job_scheduler::JobScheduler;
-    /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc);
-    /// scheduler.register_job(Box::new(HelloWorldJob)).unwrap();
-    /// let job_id = scheduler.add_job("HelloWorldJob".into(),"*/5 * * * * * *".into(),None).await.unwrap();
+    /// # use tokio_scheduler_rs::{JobContext, JobFuture, ScheduleJob};
+    /// # async fn test(){
+    /// struct ExampleJob;
+    ///
+    /// impl ScheduleJob for ExampleJob{
+    /// fn get_job_name(&self) -> String {
+    ///         String::from("ExampleJob")
+    ///     }
+    ///
+    /// fn execute(&self, ctx: JobContext) -> JobFuture {
+    ///         Box::pin(async move{
+    ///             println!("Hello, World! My JobId is {}",ctx.get_id());
+    ///             Ok(Value::default())
+    ///         })
+    ///     }
+    /// }
+    /// let scheduler = JobScheduler::default_with_timezone(chrono::Utc,30);
+    /// scheduler.register_job(Box::new(ExampleJob)).await.unwrap();
+    /// let job_id = scheduler.add_job(&ExampleJob.get_job_name(),"*/5 * * * * * *".into(),&None).await.unwrap();
+    ///#  }
     /// ```
     ///
     /// # Returns
