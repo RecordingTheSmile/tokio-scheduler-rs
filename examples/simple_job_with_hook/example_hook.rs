@@ -46,7 +46,7 @@ impl JobHook for ExampleHook {
         retry_times: u64,
     ) -> JobHookReturn {
         println!(
-            "Task: {} with id: {} and args: {:#?} is complete! ReturnValue is: {:#?}, retry time is: {}",
+            "Task: {} with id: {} and args: {:#?} is success! ReturnValue is: {:#?}, retry time is: {}",
             name, id, args, return_vaule, retry_times
         );
         JobHookReturn::NoAction
@@ -64,7 +64,7 @@ impl JobHook for ExampleHook {
         retry_times: u64,
     ) -> JobHookReturn {
         println!(
-            "Task: {} with id: {} and args: {:#?} is complete! Error is: {:#?}, retry time is: {}",
+            "Task: {} with id: {} and args: {:#?} is failed! Error is: {:#?}, retry time is: {}",
             name, id, args, error, retry_times
         );
         JobHookReturn::NoAction

@@ -10,6 +10,7 @@ use std::pin::Pin;
 /// # use std::pin::Pin;
 /// # use tokio_scheduler_rs::job::ScheduleJob;
 /// use tokio_scheduler_rs::JobContext;
+/// use tokio_scheduler_rs::JobFuture;
 /// pub struct TestJob;
 ///
 ///     impl ScheduleJob for TestJob{
@@ -17,9 +18,10 @@ use std::pin::Pin;
 ///             String::from("TestJob")
 ///         }
 ///
-///         fn execute(&self,ctx: JobContext) -> Pin<Box<dyn Future<Output=()>>> {
+///         fn execute(&self,ctx: JobContext) -> JobFuture {
 ///             Box::pin(async move{
 ///                 println!("Hello,World! My Task Uuid is: {}",ctx.get_id());
+///                 Ok(tokio_scheduler_rs::Value::default())
 ///             })
 ///         }
 ///    }

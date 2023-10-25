@@ -16,7 +16,7 @@ async fn main() {
     // You should register your job hook here
     let job_executor = DefaultJobExecutor::new(
         job_storage.to_owned(),
-        Some(10),
+        Some(1),
         Some(Box::new(ExampleHook)),
         60,
     );
@@ -33,13 +33,13 @@ async fn main() {
         .unwrap();
 
     // Don't forget to start it.
-    scheduler.start().await.unwrap();
-    // If you don't want to wait it, then:
-    // scheduler.start().await;
+    println!("Start Scheduler!");
+    scheduler.start();
 
-    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
 
     // Wait for all jobs are processed and stop the schedule.
     // The `JobExecutor` will stop execute NEW job once you execute this.
+    println!("Stop Scheduler!");
     scheduler.wait_for_stop().await;
 }
