@@ -15,12 +15,13 @@ jobs:
 
   publish:
     name: Publish
+    needs: check
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
       uses: actions/checkout@v4
     - name: Publish to crates.io
       run: |
-        cargo login "$CRATES_TOKEN"
+        cargo login "$secrets.CRATES_TOKEN"
         cargo publish -v
     
