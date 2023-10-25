@@ -81,16 +81,25 @@ where
         let hook = self.hook.to_owned();
         tokio::spawn(async move {
             loop {
+                // should we go next or exit (if recv the close signal) ?
                 let should_next = *should_next.read();
 
+                // exit if recv close signal
                 if !should_next {
-                    let _ = shutdown_sender.send(());
+                    _ = shutdown_sender.send(());
                     break;
                 }
+
+                // get all tasks should be executed from storage
                 let should_exec = match storage.get_all_should_execute_jobs().await {
                     Ok(t) => t,
-                    Err(_) => continue,
+                    Err(e) => {
+                        log::error!("[Tokio-Scheduler-Rs] Get job from storage error: {:#?}", e);
+                        continue;
+                    }
                 };
+
+                // convert should_exec tasks to `WillExecuteJobFuture`
                 let should_exec = match storage
                     .get_jobs_by_name(
                         &should_exec
@@ -101,12 +110,19 @@ where
                     .await
                 {
                     Ok(v) => v,
-                    Err(_) => continue,
+                    Err(e) => {
+                        log::error!(
+                            "[Tokio-Scheduler-Rs] Convert raw job to WillExecuteJobFuture error: {:#?}",
+                            e
+                        );
+                        continue;
+                    }
                 };
                 for (job, name, id, args) in should_exec {
                     let hook = hook.to_owned();
                     let storage = storage.to_owned();
                     let handle = tokio::spawn(async move {
+                        // call job hook to judge if we execute this task or cancel/remove this task
                         let handle_action = match &*hook {
                             Some(v) => v.on_execute(&name, &id, &args).await,
                             None => JobHookReturn::NoAction,
@@ -178,7 +194,7 @@ where
                             None => JobHookReturn::NoAction,
                         };
 
-                        let _ = match handle_action {
+                        _ = match handle_action {
                             JobHookReturn::RemoveJob => {
                                 match storage.delete_job(&id).await {
                                     Ok(_) => (),
@@ -217,6 +233,7 @@ where
                     task_vec.push(handle);
                 }
 
+                // wait for next time execute
                 tokio::time::sleep(std::time::Duration::from_secs(polling_time)).await;
             }
         })
@@ -229,21 +246,17 @@ where
         let tasks = self.tasks.to_owned();
         let timeout = self.stop_timeout;
         Box::pin(async move {
-            let _ = shutdown_channel.recv().await;
-            for i in tasks.read().iter() {
+            // ensure the execute procedure is complete
+            _ = shutdown_channel.recv().await;
+            let mut task_reader = tasks.write();
+            while let Some(task) = task_reader.pop() {
                 let timeout_fut = tokio::time::sleep(std::time::Duration::from_secs(timeout));
                 let wait_fut = async {
-                    loop {
-                        if i.is_finished() {
-                            break;
-                        } else {
-                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        }
-                    }
+                    _ = task.await;
                 };
                 tokio::select! {
                     _ = timeout_fut => {
-                        i.abort();
+                        log::warn!("[Tokio-Scheduler-Rs] Timeout when waiting for task to exit, ignore it and continue.")
                     },
                     _ = wait_fut => {
 
