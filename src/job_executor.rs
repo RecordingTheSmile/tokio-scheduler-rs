@@ -11,15 +11,6 @@ use crate::WillExecuteJobFuture;
 
 use tokio::task::JoinHandle;
 
-macro_rules! print_log {
-    ($level:ident,$message: expr) => {
-        log::$level!("[Tokio-Scheduler-Rs] {}", $message)
-    };
-    ($level:ident,$message: expr,$extend_message:expr) => {
-        log::$level!("[Tokio-Scheduler-Rs] {}: {:?}", $message, $extend_message)
-    };
-}
-
 /// `JobExecutor` is used to execute jobs
 pub trait JobExecutor: Send + Sync {
     /// start job execution
@@ -76,6 +67,7 @@ where
         }
     }
 
+    #[tracing::instrument(skip_all)]
     async fn process_tasks(
         all_tasks: Vec<(WillExecuteJobFuture, String, String, Option<Value>)>,
         hook: Arc<Option<Box<dyn JobHook>>>,
@@ -97,7 +89,7 @@ where
                         match storage.delete_job(&id).await {
                             Ok(_) => (),
                             Err(e) => {
-                                print_log!(error, "SchedulerError", e);
+                                tracing::error!("JobHookError delete job error: {:?}", e);
                             }
                         };
                         false
@@ -107,7 +99,10 @@ where
                 if !should_execute {
                     return;
                 }
+                let job_id = job.get_job_context().get_id().to_owned();
+                tracing::debug!("Start to execute job: {}", job_id);
                 let (job_context, job_execute_result) = job.execute().await;
+                tracing::debug!("Job: {} executed, result: {:?}", job_id, job_execute_result);
                 let handle_action = match &*hook {
                     Some(v) => {
                         let mut final_result = v
@@ -154,7 +149,7 @@ where
                         match storage.delete_job(&id).await {
                             Ok(_) => (),
                             Err(e) => {
-                                print_log!(error, "JobHookError", e);
+                                tracing::error!("JobHookError delete job error: {:?}", e);
                             }
                         };
                     }
@@ -165,7 +160,7 @@ where
                         {
                             Ok(_) => (),
                             Err(e) => {
-                                print_log!(error, "JobHookError", e);
+                                tracing::error!("JobHookError retry job error: {:?}; Retry error when executing `storage.add_retry_job`", e);
                             }
                         };
                     }
@@ -207,7 +202,7 @@ where
             let should_exec = match storage.get_all_should_execute_jobs().await {
                 Ok(t) => t,
                 Err(e) => {
-                    print_log!(error, "Get job from storage error", e);
+                    tracing::error!("Get job from storage error: {:?}", e);
                     continue;
                 }
             };
@@ -224,7 +219,7 @@ where
             {
                 Ok(v) => v,
                 Err(e) => {
-                    print_log!(error, "Convert raw job to WillExecuteJobFuture error", e);
+                    tracing::error!("Get job from storage error: {:?}", e);
                     continue;
                 }
             };
@@ -286,7 +281,7 @@ where
                 };
                 tokio::select! {
                     _ = timeout_fut => {
-                        print_log!(warn,"Timeout when waiting for task to exit, ignore it and continue.");
+                        tracing::warn!("JobExecutor stop timeout, force cancel the job");
                     },
                     _ = wait_fut => {
 
