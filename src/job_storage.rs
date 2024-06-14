@@ -6,6 +6,7 @@ use parking_lot::RwLock;
 use serde_json::Value;
 use std::str::FromStr;
 use std::sync::Arc;
+use tracing::instrument;
 
 use crate::errors::{SchedulerError, SchedulerErrorKind};
 use crate::job::{JobContext, ScheduleJob, WillExecuteJobFuture};
@@ -164,6 +165,7 @@ where
     Tz: chrono::TimeZone + Sync + Send,
     Tz::Offset: Send + Sync,
 {
+    #[instrument(skip_all)]
     async fn register_job(&self, job: Box<dyn ScheduleJob>) -> Result<(), SchedulerError> {
         let is_registered = self.tasks.get(&job.get_job_name()).is_some();
 
@@ -171,10 +173,12 @@ where
             return Err(SchedulerError::new(SchedulerErrorKind::JobRegistered));
         }
 
+        tracing::debug!("Register job: {}", job.get_job_name());
         self.tasks.insert(job.get_job_name(), job);
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn add_job(
         &self,
         job_name: &str,
@@ -188,9 +192,16 @@ where
         self.jobs
             .insert(id.to_owned(), (cron, job_name.to_owned(), args.to_owned()));
 
+        tracing::debug!(
+            "Add job: {job_name} with id: {id}",
+            job_name = job_name,
+            id = id
+        );
+
         Ok(id)
     }
 
+    #[instrument(skip(self))]
     async fn add_retry_job(
         &self,
         origin_id: &str,
@@ -198,6 +209,8 @@ where
         args: &Option<Value>,
         retry_times: u64,
     ) -> Result<String, SchedulerError> {
+        tracing::debug!("Add retry job: {job_name}", job_name = job_name);
+
         let id = uuid::Uuid::new_v4().to_string();
 
         self.retry_jobs.insert(
@@ -213,18 +226,23 @@ where
         Ok(id)
     }
 
+    #[instrument(skip(self))]
     async fn delete_job(&self, id: &str) -> Result<(), SchedulerError> {
+        tracing::debug!("Delete job: {id}", id = id);
+
         self.jobs.remove(id);
 
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn has_job(&self, id: &str) -> Result<bool, SchedulerError> {
         let has = self.jobs.contains_key(id);
 
         Ok(has)
     }
 
+    #[instrument(skip(self))]
     async fn get_all_should_execute_jobs(
         &self,
     ) -> Result<Vec<(String, String, Option<Value>, u64)>, SchedulerError> {
@@ -275,13 +293,18 @@ where
         result_vec.append(&mut all_should_retry_jobs);
 
         self.retry_jobs.clear();
+
+        tracing::debug!("Should execute {} job(s)", result_vec.len());
         Ok(result_vec)
     }
 
+    #[instrument(skip(self))]
     async fn restore_jobs(&self) -> Result<(), SchedulerError> {
+        tracing::warn!("MemoryJobStorage does not support restore jobs. Ignored!");
         Ok(())
     }
 
+    #[instrument(skip(self))]
     async fn get_job_by_name(
         &self,
         name: &str,
@@ -290,16 +313,19 @@ where
         retry_times: u64,
     ) -> Result<Option<WillExecuteJobFuture>, SchedulerError> {
         if let Some(task) = self.tasks.get(name) {
+            tracing::debug!("Found job: {name} with id: {id}", name = name, id = id);
             let job_context = JobContext::new(id.to_owned(), args.to_owned(), retry_times);
             Ok(Some(WillExecuteJobFuture::new(
                 task.execute(job_context.to_owned()),
                 job_context,
             )))
         } else {
+            tracing::warn!("Job: {name} not found", name = name);
             Ok(None)
         }
     }
 
+    #[instrument(skip(self))]
     async fn get_jobs_by_name(
         &self,
         exprs: &Vec<(String, String, Option<Value>, u64)>,
@@ -313,6 +339,8 @@ where
             };
             result.push((job, name.to_owned(), id.to_owned(), args.to_owned()));
         }
+
+        tracing::debug!("Found {} job(s)", result.len());
         Ok(result)
     }
 }

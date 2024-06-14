@@ -11,6 +11,7 @@
 * Hook support
 * Automatic retry support
 * Distribute Job Execution support (You should implement it by yourself)
+* Default `tracing` support
 
 # Example
 ```rust
