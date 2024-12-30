@@ -4,164 +4,148 @@
 
 <div style="text-align: center"><a href="README_CN.MD">简体中文</a></div>
 
+# Requirements
+
+The 2.0 version of `tokio-scheduler-rs` is designed for Rust version 1.83 and later.
+
+Older version of Rust may work, but it is not tested.
+
+If you get any error, please try to use the 1.0 version for older Rust.
+
 # Features
+
 * Async Completely
 * Witten with tokio runtime
 * Maximum Customize
 * Hook support
 * Automatic retry support
-* Distribute Job Execution support (You should implement it by yourself)
 * Default `tracing` support
 
 # Example
+
 ```rust
-use std::sync::Arc;
+#[job]
+pub(crate) struct ExampleJob;
 
-use tokio_scheduler_rs::{job_hook::JobHook,job_hook::JobHookReturn,async_trait,DefaultJobExecutor, JobScheduler, MemoryJobStorage, JobContext, JobFuture,Value,ScheduleJob};
 
-struct ExampleJob;
-
-impl ScheduleJob for ExampleJob{
-    fn get_job_name(&self) -> String {
-        String::from("ExampleJob")
+impl Job for ExampleJob {
+    fn get_job_name(&self) -> &'static str {
+        "ExampleJob"
     }
 
     fn execute(&self, ctx: JobContext) -> JobFuture {
-        Box::pin(async move{
-            println!("Hello, World! My JobId is {}",ctx.get_id());
-            Ok(Value::default())
+        Box::pin(async move {
+            println!(
+                "Hello, World! My JobId is {}, time is: {}",
+                ctx.get_id(),
+                chrono::Local::now()
+            );
+            Ok(JobReturn::default())
         })
     }
 }
 
-struct ExampleHook;
 
-#[async_trait]
+pub(crate) struct ExampleHook;
+
 impl JobHook for ExampleHook {
-    async fn on_execute(&self, name: &str, id: &str, args: &Option<Value>) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is going to execute!",
-            name, id, args
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running ONLY THIS TIME:
-        // JobHookReturn::CancelRunning
-        // or you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-    }
-    async fn on_complete(
+    fn before_execute(
         &self,
-        name: &str,
-        id: &str,
-        args: &Option<Value>,
-        result: &anyhow::Result<Value>,
-        retry_times: u64,
-    ) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is complete! Result is: {:#?}, retry time is: {}",
-            name, id, args, result, retry_times
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-        // Or if you want to retry this job:
-        // JobHookReturn::RetryJob
+        _name: &str,
+        _id: &str,
+        _args: &mut Option<Value>,
+        _retry_times: u64,
+    ) -> impl Future<Output=JobHookReturn> {
+        async move {
+            println!("Before execute hook");
+            JobHookReturn::NoAction
+        }
     }
-    async fn on_success(
+
+    fn on_complete(
         &self,
-        name: &str,
-        id: &str,
-        args: &Option<Value>,
-        return_vaule: &Value,
-        retry_times: u64,
-    ) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is complete! ReturnValue is: {:#?}, retry time is: {}",
-            name, id, args, return_vaule, retry_times
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-        // Or if you want to retry this job:
-        // JobHookReturn::RetryJob
+        _name: &str,
+        _id: &str,
+        _args: &Option<Value>,
+        _result: &anyhow::Result<JobReturn>,
+        _retry_times: u64,
+    ) -> impl Future<Output=JobHookReturn> {
+        async move {
+            println!("On complete hook");
+            JobHookReturn::NoAction
+        }
     }
-    async fn on_fail(
+
+    fn on_success(
         &self,
-        name: &str,
-        id: &str,
-        args: &Option<Value>,
-        error: &anyhow::Error,
-        retry_times: u64,
-    ) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is complete! Error is: {:#?}, retry time is: {}",
-            name, id, args, error, retry_times
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-        // Or if you want to retry this job:
-        // JobHookReturn::RetryJob
+        _name: &str,
+        _id: &str,
+        _args: &Option<Value>,
+        _return_value: &JobReturn,
+        _retry_times: u64,
+    ) -> impl Future<Output=JobHookReturn> {
+        async move {
+            println!("On success hook");
+            JobHookReturn::NoAction
+        }
+    }
+
+    fn on_fail(
+        &self,
+        _name: &str,
+        _id: &str,
+        _args: &Option<Value>,
+        _error: &anyhow::Error,
+        _retry_times: u64,
+    ) -> impl Future<Output=JobHookReturn> {
+        async move {
+            println!("On fail hook");
+            JobHookReturn::NoAction
+        }
     }
 }
 
 #[tokio::main]
 async fn main() {
-    // Create a new `job_storage`, you can impl it by yourself.
-    // !!!  PLEASE NOTICE THAT MEMORYJOBSTORAGE SHOULD NOT BE USED IN PRODUCTION  !!!
-    let job_storage = Arc::new(MemoryJobStorage::new(chrono::Utc));
-    // Create a new `job_executor`.
-    // You should register your job hook here
-    let job_executor = DefaultJobExecutor::new(
-        job_storage.to_owned(),
-        Some(10),
-        Some(Box::new(ExampleHook)),
-        30
-    );
-    let scheduler = JobScheduler::new(job_storage, job_executor);
+    let producer = DefaultJobProducer::new::<chrono_tz::Tz>(UTC);
+    let consumer = DefaultJobConsumer::new();
 
-    // Register a job
-    scheduler.register_job(Box::new(ExampleJob)).await.unwrap();
+    let mut opts = JobManagerOptions::default();
 
-    // Set a schedule with given cron expression.
-    // !!! PLEASE NOTICE THAT YOU MUST REGISTER THE JOB FIRST !!!
-    scheduler
-        .add_job(&ExampleJob.get_job_name(), "* * * * * * *", &None)
+    opts.graceful_shutdown_timeout_seconds = 10;
+    opts.producer_poll_seconds = 1;
+
+    let job_manager = JobManager::new_with_options(producer, consumer, ExampleHook, opts);
+
+    job_manager.auto_register_job().await.unwrap();
+
+    job_manager
+        .schedule_job(ExampleJob, "* * * * * * *", None)
         .await
         .unwrap();
 
-    // Don't forget to start it.
     println!("Start scheduler");
-    scheduler.start();
+    job_manager.start().await;
 
+    println!("Current Time: {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
     tokio::time::sleep(std::time::Duration::from_secs(10)).await;
-
-    // Wait for all jobs are processed and stop the schedule.
-    // The `JobExecutor` will stop execute NEW job once you execute this.
     println!("Stop scheduler");
-    scheduler.wait_for_stop().await;
+
+    job_manager.stop().await;
+    println!("Scheduler stopped");
 }
 ```
+
 # Examples
+
 You can see examples in the `examples` directory.
 
 # Contribute
+
 If you have some ideas, you can create a pull request or open an issue.
 
 Any kinds of contributions are welcome!
 
-# Distributed Job Execution
-As you can see, in `JobExecutor` trait, we define two functions: `start` and `stop`.
-
-So, you can define your own `JobExecutor`, polling the `JobStorage` and transfer job information to remote via anyway you want.
-
-In the remote machine, you should define the `Job` with given `name`, then execute it with given job information(`new JobContext()`) received from origin `JobExecutor` machine.
-
-![DistributedJob](assets/DistributedJob.jpg "Distributed Job Execution")
-
-# Roadmap
-* Add more tests
-* Distributed task execution system that is ready-to-use out of the box
-
 # License
+
 MIT

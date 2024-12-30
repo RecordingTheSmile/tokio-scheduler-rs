@@ -1,76 +1,64 @@
-use tokio_scheduler_rs::{
-    async_trait,
-    job_hook::{JobHook, JobHookReturn},
-    Value,
-};
+use serde_json::Value;
+use std::future::Future;
+use tokio_scheduler_rs::JobHook;
+use tokio_scheduler_types::job::JobReturn;
+use tokio_scheduler_types::job_hook::JobHookReturn;
 
-pub struct ExampleHook;
+pub(crate) struct ExampleHook;
 
-#[async_trait]
 impl JobHook for ExampleHook {
-    async fn on_execute(&self, name: &str, id: &str, args: &Option<Value>) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is going to execute!",
-            name, id, args
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running ONLY THIS TIME:
-        // JobHookReturn::CancelRunning
-        // or you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-    }
-    async fn on_complete(
+    fn before_execute(
         &self,
-        name: &str,
-        id: &str,
-        args: &Option<Value>,
-        result: &anyhow::Result<Value>,
-        retry_times: u64,
-    ) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is complete! Result is: {:#?}, retry time is: {}",
-            name, id, args, result, retry_times
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-        // Or if you want to retry this job:
-        // JobHookReturn::RetryJob
+        _name: &str,
+        _id: &str,
+        _args: &mut Option<Value>,
+        _retry_times: u64,
+    ) -> impl Future<Output = JobHookReturn> {
+        async move {
+            println!("Before execute hook");
+            JobHookReturn::NoAction
+        }
     }
-    async fn on_success(
+
+    fn on_complete(
         &self,
-        name: &str,
-        id: &str,
-        args: &Option<Value>,
-        return_vaule: &Value,
-        retry_times: u64,
-    ) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is success! ReturnValue is: {:#?}, retry time is: {}",
-            name, id, args, return_vaule, retry_times
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-        // Or if you want to retry this job:
-        // JobHookReturn::RetryJob
+        _name: &str,
+        _id: &str,
+        _args: &Option<Value>,
+        _result: &anyhow::Result<JobReturn>,
+        _retry_times: u64,
+    ) -> impl Future<Output = JobHookReturn> {
+        async move {
+            println!("On complete hook");
+            JobHookReturn::NoAction
+        }
     }
-    async fn on_fail(
+
+    fn on_success(
         &self,
-        name: &str,
-        id: &str,
-        args: &Option<Value>,
-        error: &anyhow::Error,
-        retry_times: u64,
-    ) -> JobHookReturn {
-        println!(
-            "Task: {} with id: {} and args: {:#?} is failed! Error is: {:#?}, retry time is: {}",
-            name, id, args, error, retry_times
-        );
-        JobHookReturn::NoAction
-        // If you want to Cancel this running and remove this schedule forever:
-        // JobHookReturn::RemoveJob
-        // Or if you want to retry this job:
-        // JobHookReturn::RetryJob
+        _name: &str,
+        _id: &str,
+        _args: &Option<Value>,
+        _return_value: &JobReturn,
+        _retry_times: u64,
+    ) -> impl Future<Output = JobHookReturn> {
+        async move {
+            println!("On success hook");
+            JobHookReturn::NoAction
+        }
+    }
+
+    fn on_fail(
+        &self,
+        _name: &str,
+        _id: &str,
+        _args: &Option<Value>,
+        _error: &anyhow::Error,
+        _retry_times: u64,
+    ) -> impl Future<Output = JobHookReturn> {
+        async move {
+            println!("On fail hook");
+            JobHookReturn::NoAction
+        }
     }
 }

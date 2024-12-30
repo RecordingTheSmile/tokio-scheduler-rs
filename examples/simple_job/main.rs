@@ -1,39 +1,38 @@
-use std::sync::Arc;
+mod example_job;
 
-use example_jobs::ExampleJob;
-use tokio_scheduler_rs::{DefaultJobExecutor, JobScheduler, MemoryJobStorage};
-
-pub mod example_jobs;
+use crate::example_job::ExampleJob;
+use chrono::Local;
+use chrono_tz::Tz::UTC;
+use tokio_scheduler_rs::{
+    DefaultJobConsumer, DefaultJobProducer, EmptyHook, JobManager, JobManagerOptions,
+};
 
 #[tokio::main]
 async fn main() {
-    // Create a new `job_storage`, you can impl it by yourself.
-    // !!!  PLEASE NOTICE THAT MEMORYJOBSTORAGE SHOULD NOT BE USED IN PRODUCTION  !!!
-    let job_storage = Arc::new(MemoryJobStorage::new(chrono::Utc));
-    // Create a new `job_executor`.
-    // The second `u64` args means how long does `DefaultJobExecutor` query the `job_storage`.
-    // If you set it to `None`, Some(5) is used as default.
-    let job_executor = DefaultJobExecutor::new(job_storage.to_owned(), Some(1), None, 30);
-    let scheduler = JobScheduler::new(job_storage, job_executor);
+    let producer = DefaultJobProducer::new::<chrono_tz::Tz>(UTC);
+    let consumer = DefaultJobConsumer::new();
 
-    // Register a job
-    scheduler.register_job(Box::new(ExampleJob)).await.unwrap();
+    let mut opts = JobManagerOptions::default();
 
-    // Set a schedule with given cron expression.
-    // !!! PLEASE NOTICE THAT YOU MUST REGISTER THE JOB FIRST !!!
-    scheduler
-        .add_job(ExampleJob::JOB_NAME, "*/5 * * * * * *", &None)
+    opts.graceful_shutdown_timeout_seconds = 10;
+    opts.producer_poll_seconds = 1;
+
+    let job_manager = JobManager::new_with_options(producer, consumer, EmptyHook, opts);
+
+    job_manager.register_job(&ExampleJob).await.unwrap();
+
+    job_manager
+        .schedule_job(ExampleJob, "* * * * * * *", None)
         .await
         .unwrap();
 
-    // Don't forget to start it.
-    println!("Start scheduler!");
-    scheduler.start();
+    println!("Start scheduler");
+    job_manager.start().await;
 
-    tokio::time::sleep(std::time::Duration::from_secs(15)).await;
+    println!("Current Time: {}", Local::now().format("%Y-%m-%d %H:%M:%S"));
+    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+    println!("Stop scheduler");
 
-    // Wait for all jobs are processed and stop the schedule.
-    // The `JobExecutor` will stop execute NEW job once you execute this.
-    println!("Stop scheduler!");
-    scheduler.wait_for_stop().await;
+    job_manager.stop().await;
+    println!("Scheduler stopped");
 }

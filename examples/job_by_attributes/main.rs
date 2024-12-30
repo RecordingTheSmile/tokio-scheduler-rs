@@ -1,11 +1,21 @@
-mod example_hook;
-mod example_job;
-
-use crate::example_hook::ExampleHook;
-use crate::example_job::ExampleJob;
 use chrono::Local;
 use chrono_tz::Tz::UTC;
-use tokio_scheduler_rs::{DefaultJobConsumer, DefaultJobProducer, JobManager, JobManagerOptions};
+use tokio_scheduler_macro::job;
+use tokio_scheduler_rs::job::JobReturn;
+use tokio_scheduler_rs::{
+    DefaultJobConsumer, DefaultJobProducer, EmptyHook, JobManager, JobManagerOptions,
+};
+
+#[job]
+pub(crate) async fn example_fn_task(ctx: JobContext) -> anyhow::Result<JobReturn> {
+    println!(
+        "Hello, World! My JobId is {}, time is: {}",
+        ctx.get_id(),
+        Local::now()
+    );
+
+    Ok(JobReturn::default())
+}
 
 #[tokio::main]
 async fn main() {
@@ -17,12 +27,12 @@ async fn main() {
     opts.graceful_shutdown_timeout_seconds = 10;
     opts.producer_poll_seconds = 1;
 
-    let job_manager = JobManager::new_with_options(producer, consumer, ExampleHook, opts);
+    let job_manager = JobManager::new_with_options(producer, consumer, EmptyHook, opts);
 
-    job_manager.register_job(&ExampleJob).await.unwrap();
+    job_manager.register_job(&ExampleFnTask).await.unwrap();
 
     job_manager
-        .schedule_job(ExampleJob, "* * * * * * *", None)
+        .schedule_job(ExampleFnTask, "* * * * * * *", None)
         .await
         .unwrap();
 

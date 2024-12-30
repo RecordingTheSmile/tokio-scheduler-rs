@@ -1,0 +1,19 @@
+[package]
+name = "tokio-scheduler-macro"
+version = "2.0.0"
+edition = "2021"
+description = "Macros for tokio-scheduler-rs"
+license = "MIT"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "^2", features = ["full"] }
+quote = "^1"
+tokio-scheduler-types = { path = '../tokio-scheduler-types' }
+convert_case = { version = "^0" }
+proc-macro2 = "^1"
+
+[dev-dependencies]
+anyhow = "^1"

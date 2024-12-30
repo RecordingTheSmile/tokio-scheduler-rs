@@ -1,12 +1,15 @@
 use anyhow::Error;
 use std::fmt::{Debug, Display, Formatter};
 
+/// Error kind for scheduler
 #[derive(Debug)]
 pub enum SchedulerErrorKind {
-    JobRegistered,
-    CronInvalid,
+    /// Cron expression is invalid
+    CronInvalid(String, cron::error::Error),
+    /// Job not exists
     JobNotExists,
-    CustomErr(crate::Error),
+    /// Other errors
+    CustomErr(Error),
 }
 
 #[derive(Debug)]

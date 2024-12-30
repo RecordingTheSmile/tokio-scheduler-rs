@@ -1,11 +1,10 @@
-mod example_hook;
-mod example_job;
+mod jobs;
 
-use crate::example_hook::ExampleHook;
-use crate::example_job::ExampleJob;
 use chrono::Local;
 use chrono_tz::Tz::UTC;
-use tokio_scheduler_rs::{DefaultJobConsumer, DefaultJobProducer, JobManager, JobManagerOptions};
+use tokio_scheduler_rs::{
+    DefaultJobConsumer, DefaultJobProducer, EmptyHook, JobManager, JobManagerOptions,
+};
 
 #[tokio::main]
 async fn main() {
@@ -17,12 +16,14 @@ async fn main() {
     opts.graceful_shutdown_timeout_seconds = 10;
     opts.producer_poll_seconds = 1;
 
-    let job_manager = JobManager::new_with_options(producer, consumer, ExampleHook, opts);
+    let job_manager = JobManager::new_with_options(producer, consumer, EmptyHook, opts);
 
-    job_manager.register_job(&ExampleJob).await.unwrap();
+    let registered_job_names = job_manager.auto_register_job().await.unwrap();
+
+    println!("Registered jobs: {:?}", registered_job_names);
 
     job_manager
-        .schedule_job(ExampleJob, "* * * * * * *", None)
+        .schedule_job_by_name("ExampleFnTask", "* * * * * * *", None)
         .await
         .unwrap();
 
