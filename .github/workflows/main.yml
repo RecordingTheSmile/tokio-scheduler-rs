@@ -2,7 +2,7 @@ on:
   push:
     tags:
       - '*'
-  
+
 jobs:
   check:
     name: Check and Test
@@ -20,10 +20,20 @@ jobs:
     needs: check
     runs-on: ubuntu-latest
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
-    - name: Publish to crates.io
-      run: |
-        cargo login ${{ secrets.CRATES_TOKEN }}
-        cargo publish -v
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Push types to crates.io
+        working-directory: tokio-scheduler-types
+        run: |
+          cargo login ${{ secrets.CRATES_TOKEN }}
+          cargo publish -v
+      - name: Push macro to crates.io
+        working-directory: tokio-scheduler-macro
+        run: |
+          cargo login ${{ secrets.CRATES_TOKEN }}
+          cargo publish -v
+      - name: Publish to crates.io
+        run: |
+          cargo login ${{ secrets.CRATES_TOKEN }}
+          cargo publish -v
     

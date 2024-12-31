@@ -25,8 +25,8 @@ anyhow = "^1"
 parking_lot = "^0"
 tracing = "^0"
 tokio-util = "^0"
-tokio-scheduler-types = { path = 'tokio-scheduler-types' }
-tokio-scheduler-macro = { path = 'tokio-scheduler-macro' }
+tokio-scheduler-types = { version = "^2" }
+tokio-scheduler-macro = { version = "^2" }
 inventory = "^0"
 
 [dev-dependencies]
