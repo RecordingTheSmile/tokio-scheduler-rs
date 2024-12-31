@@ -26,6 +26,15 @@ If you get any error, please try to use the 1.0 version for older Rust.
 # Example
 
 ```rust
+use chrono::Local;
+use tokio_scheduler_rs::{
+    JobManager, JobManagerOptions, DefaultJobConsumer, DefaultJobProducer, JobHookReturn, Value,
+    job::{JobReturn, JobFuture, JobContext}, Job, JobHook
+};
+use tokio_scheduler_macro::job;
+use std::future::Future;
+use chrono_tz::UTC;
+
 #[job]
 pub(crate) struct ExampleJob;
 
