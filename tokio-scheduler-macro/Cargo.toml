@@ -4,6 +4,7 @@ version = "2.0.0"
 edition = "2021"
 description = "Macros for tokio-scheduler-rs"
 license = "MIT"
+readme = "README.MD"
 
 [lib]
 proc-macro = true
@@ -11,7 +12,7 @@ proc-macro = true
 [dependencies]
 syn = { version = "^2", features = ["full"] }
 quote = "^1"
-tokio-scheduler-types = { path = '../tokio-scheduler-types' }
+tokio-scheduler-types = { version = "^2" }
 convert_case = { version = "^0" }
 proc-macro2 = "^1"
 
