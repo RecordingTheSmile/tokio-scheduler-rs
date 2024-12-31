@@ -1,5 +1,5 @@
 #![forbid(unsafe_code)]
-#![doc=include_str!("../README.md")]
+#![doc=include_str!("../README.MD")]
 pub use tokio_scheduler_types::errors;
 pub mod job_consumer;
 pub mod job_hook;
