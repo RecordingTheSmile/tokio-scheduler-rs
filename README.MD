@@ -1,8 +1,10 @@
-<div style="text-align: center"><h1>TOKIO-SCHEDULER-RS</h1></div>
+<div style="text-align: center; margin-top: 20px;">
+    <img style="max-height: 200px;max-width: 200px;" src="assets/logo.jpg" alt="logo" />
+</div>
+
+<div style="text-align: center"><h1>Tokio-Scheduler-Rs</h1></div>
 
 <div style="text-align: center">Yet Another JobScheduler</div>
-
-<div style="text-align: center"><a href="README_CN.MD">简体中文</a></div>
 
 # Requirements
 
@@ -16,7 +18,7 @@ If you get any error, please try to use the 1.0 version for older Rust.
 
 * Async Completely
 * Witten with tokio runtime
-* Maximum Customize
+* Automatic job register
 * Hook support
 * Automatic retry support
 * Default `tracing` support

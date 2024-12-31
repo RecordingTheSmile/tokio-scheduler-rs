@@ -85,7 +85,7 @@ macro_rules! into_compile_error {
 pub fn job(args: TokenStream, input: TokenStream) -> TokenStream {
     let parsed_input = syn::parse::<syn::Item>(input).unwrap();
 
-    // Parse the arguments, find #[job(name="xxx")]
+    // Parse the arguments, match #[job(name="xxx")]
     let args_parsed =
         syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated.parse(args);
 

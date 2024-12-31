@@ -10,7 +10,7 @@ repository = "https://github.com/RecordingTheSmile/tokio-scheduler-rs"
 readme = "README.MD"
 
 [workspace]
-members = [".", "tokio-scheduler-macro", "tokio-scheduler-types", "tokio-scheduler-types"]
+members = [".", "tokio-scheduler-macro", "tokio-scheduler-types"]
 
 [dependencies]
 serde_json = "^1"
