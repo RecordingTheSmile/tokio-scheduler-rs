@@ -28,7 +28,12 @@ impl JobConsumer for DefaultJobConsumer {
         let job = self.jobs.get(ctx.job_name);
 
         if let Some(job) = job {
-            let run_ctx = JobContext::new(ctx.job_id, ctx.job_args, 0, cancellation_token);
+            let run_ctx = JobContext::new(
+                ctx.job_id,
+                ctx.job_args,
+                ctx.retry_times,
+                cancellation_token,
+            );
             job.execute(run_ctx).await
         } else {
             anyhow::bail!(SchedulerError::new(SchedulerErrorKind::JobNotExists))
